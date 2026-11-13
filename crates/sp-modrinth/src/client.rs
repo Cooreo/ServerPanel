@@ -279,17 +279,22 @@ impl ModrinthClient {
             return Ok(Vec::new());
         }
         let body = json!(sha1_hex);
-        let text = self
+        // `HttpClient::post` hands back a `reqwest` builder (that is the escape hatch
+        // for endpoints whose body is not a plain JSON struct we own); `send_retrying`
+        // would add retries, but 404 is a valid answer here and a retry would only
+        // delay the caller's fallback path.
+        let resp = self
             .http
-            .post("/version_files", &body)
+            .post("/version_files")
+            .json(&body)
             .send()
             .await
             .map_err(|e| CoreError::UpstreamUnavailable {
                 service: "modrinth",
                 source: e.into(),
             })?;
-        let status = text.status();
-        let text = text.text().await.unwrap_or_default();
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
         if status.as_u16() == 404 {
             // The documented behaviour for "none of these hashes are known".
             return Ok(Vec::new());

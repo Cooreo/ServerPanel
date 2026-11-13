@@ -45,6 +45,18 @@ jobs:
                -A clippy::needless_pass_by_value -A clippy::too_many_lines \
             > clippy.log 2>&1
           echo "clippy exit: $?" >> clippy.log
+      - name: tidy
+        run: |
+          # Cargo prints its own "unused workspace dependency" notes for path deps whose
+          # crates are not written yet (sp-server, sp-desktop). They are noise on every
+          # run, they are ANSI-heavy, and they pushed the real failure off the end of a
+          # fixed-size relay. Strip colour and drop that one lint here, once, for all logs.
+          for f in fmt.log check.log clippy.log; do
+            sed -r 's/\x1b\[[0-9;]*m//g; s/\x1b\[[0-9;]*[A-Za-z]//g' "$f" > "$f.clean"
+            grep -v "unused workspace dependency" "$f.clean" | grep -v "^ *[0-9]* *|" | grep -v "^ *|" | grep -v "consider removing the workspace dependency" | grep -v "is set to .warn. by default" | grep -v "^ *-->" > "$f.filt" || true
+            mv "$f.filt" "$f.clean"
+            echo "== $f: $(wc -l < "$f.clean") lines"
+          done
       - name: relay
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -54,26 +66,26 @@ jobs:
             echo ""
             echo "| step | result |"
             echo "| --- | --- |"
-            echo "| rustfmt | $(grep -c '^Diff in' fmt.log) diff hunks |"
-            echo "| check | $(grep -cE '^crates/.*error' check.log) errors, $(grep -cE '^crates/.*warning' check.log) warnings |"
-            echo "| clippy | $(grep -cE '^crates/.*error' clippy.log) errors, $(grep -cE '^crates/.*warning' clippy.log) warnings |"
+            echo "| rustfmt | $(grep -c '^Diff in' fmt.log.clean) diff hunks |"
+            echo "| check | $(grep -cE 'error' check.log.clean) error lines, $(grep -cE 'warning' check.log.clean) warnings |"
+            echo "| clippy | $(grep -cE 'error' clippy.log.clean) error lines, $(grep -cE 'warning' clippy.log.clean) warnings |"
             echo ""
             echo "**exits:** $(grep -h 'exit:' fmt.log check.log clippy.log | tr '\n' ' ')"
             echo ""
             echo '```text'
-            grep -E '^crates/.*error' check.log | head -120
+            grep -E 'error' check.log.clean | head -120
             echo '```'
             echo ""
             echo '```text'
-            grep -E '^crates/.*warning' clippy.log | head -60
+            grep -E 'warning' clippy.log.clean | grep -v '^ *$' | head -60
             echo '```'
             echo ""
             echo "<details><summary>raw tails (catches failures with no file:line)</summary>"
             echo ""
             echo '```text'
-            tail -c 5000 check.log
-            echo '---'
-            tail -c 3000 clippy.log
+            tail -c 5500 check.log.clean
+            echo '--- clippy ---'
+            tail -c 3000 clippy.log.clean
             echo '```'
             echo ""
             echo "</details>"
