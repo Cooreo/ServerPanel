@@ -73,7 +73,9 @@ jobs:
             echo "**exits:** $(grep -h 'exit:' fmt.log check.log clippy.log | tr '\n' ' ')"
             echo ""
             echo '```text'
-            grep -E 'error' check.log.clean | head -120
+            grep -E 'error' check.log.clean | head -60
+            echo "--- full resolution/conflict text ---"
+            grep -A40 'failed to select\|error\[' check.log.clean | head -120
             echo '```'
             echo ""
             echo '```text'
