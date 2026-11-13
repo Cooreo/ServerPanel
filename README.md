@@ -6,7 +6,8 @@ Built for Windows first (an installer, not a zip of jars), with Linux and macOS
 binaries from the same code base.
 
 **Status: under construction, no releases yet.** The engine layer is written
-(`sp-core`, `sp-db`, `sp-net`, `sp-process`, `sp-providers`); the API server, the
+(`sp-core`, `sp-db`, `sp-net`, `sp-process`, `sp-providers`, `sp-modrinth`,
+`sp-backup`); the API server, the
 desktop shell and the web UI are not, so there is nothing to download and no tag. A
 ServerPanel release is defined by its installers — `v0.1.0` gets tagged when
 `sp-desktop` and `web/` exist, and `.github/workflows/release.yml` builds and attaches

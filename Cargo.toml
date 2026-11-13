@@ -17,7 +17,6 @@ rust-version = "1.80"
 authors = ["ServerPanel Contributors"]
 license = "MIT"
 repository = "https://github.com/Cooreo/ServerPanel"
-homepage = "https://github.com/Cooreo/ServerPanel"
 publish = false
 
 [workspace.dependencies]
