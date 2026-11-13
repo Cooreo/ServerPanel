@@ -84,7 +84,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
-          python3 - <<'PY'
+          # If the formatter below ever crashes, the fallback still posts the raw
+          # grep output: a relay that fails silently is how a red build read as
+          # "0 errors" once already.
+          if ! python3 - <<'PY'
           import re, subprocess, os
           DIAG = os.environ["DIAG_ISSUE"]
           sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
@@ -103,8 +106,13 @@ jobs:
           cerr, cwarn = diag(check), diag(clippy)
           codes = {}
           for l in cerr + diag(clippy):
-              for m in re.findall(r"(error|warning)\[([A-Za-z0-9_]+)\]|: (error|warning):", l):
-                  key = m[1] or m[3] or m[2] or "unnamed"
+              # One search, not findall-with-tuples: `re.findall` over a pattern with
+              # three groups returns 3-tuples, and indexing m[3] on a 3-tuple is an
+              # IndexError — which killed this step and posted nothing for a build that
+              # had plenty to say.
+              m = re.search(r":\s(error|warning)(?:\[([^\]]+)\])?:", l)
+              if m:
+                  key = m.group(2) or "uncoded"
                   codes[key] = codes.get(key, 0) + 1
           by_crate = {}
           for l in cerr:
@@ -140,7 +148,7 @@ jobs:
           if chunk:
               body.append("```text\n" + chunk + "\n```")
           if len(cerr) > 400:
-              body.append(f"…{len(cerr) - 400} more check errors in the next comments" if False else f"_(showing 400 of {len(cerr)})_")
+              body.append(f"_(showing 400 of {len(cerr)} check errors; the rest are in the following comments)_")
           tail = check.strip().splitlines()[-25:]
           body.append("<details><summary>raw check tail</summary>\n\n```text\n" + "\n".join(tail) + "\n```\n\n</details>")
           if not cerr:
@@ -155,3 +163,18 @@ jobs:
               subprocess.run(["gh", "issue", "comment", DIAG, "--repo", os.environ["GITHUB_REPOSITORY"], "--body-file", path], check=False)
           print(f"posted {len(body)} comment(s); {len(cerr)} errors relayed")
           PY
+          then
+            grep -E '\.rs:[0-9]+:[0-9]+: (error|warning)' check.log.clean | head -200 > fallback.md || true
+            {
+              echo "### relay script failed — raw diagnostics"
+              echo ""
+              echo '```text'
+              cat fallback.md
+              echo '```'
+              echo ""
+              echo '```text'
+              tail -40 check.log.clean
+              echo '```'
+            } > fallback-body.md
+            gh issue comment "$DIAG_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file fallback-body.md || true
+          fi
