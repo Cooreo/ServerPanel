@@ -1,0 +1,41 @@
+# Rust
+/target
+**/target
+Cargo.lock.orig
+
+# Frontend
+web/node_modules
+web/dist
+web/dist-ssr
+web/.vite
+web/coverage
+web/playwright-report
+web/test-results
+node_modules
+
+# Tauri
+crates/sp-desktop/src-tauri/gen
+crates/sp-desktop/target
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Build & release artifacts (installers are published to GitHub Releases, not git)
+dist-installers/
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.deb
+*.snap
+
+# Local data
+*.local
+.env
+.env.*
+!.env.example
