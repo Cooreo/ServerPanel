@@ -56,16 +56,30 @@ impl LaunchPlan {
             // says so explicitly.
             args.push("-Dcom.sun.management.jmxremote.local.only=true".to_string());
         }
-        args.push("-jar".to_string());
-        args.push(server_jar_name(kind).to_string());
-        for extra in &cfg.program_args {
-            args.push(extra.clone());
+        // Where the code comes from is the provider's decision, recorded per server
+        // (`ServerRuntimeConfig::launch`), so a Forge argfile install and a vanilla
+        // `-jar` install both survive a settings edit.
+        match &cfg.launch {
+            LaunchMode::Jar { jar, .. } => {
+                args.push("-jar".to_string());
+                args.push(jar.clone());
+            }
+            LaunchMode::Classpath { entries, main_class, .. } => {
+                args.push("-cp".to_string());
+                args.push(entries.join(LaunchMode::classpath_separator()));
+                args.push(main_class.clone());
+            }
+            LaunchMode::ArgFile { argfile, .. } => {
+                // The JVM expands `@file` itself; no shell is involved, which is
+                // why we can allow it at all.
+                args.push(format!("@{argfile}"));
+            }
         }
         // Vanilla and the Forge-family installers open a GUI window unless told
         // otherwise; proxies have no such flag.
         if !kind.is_proxy()
             && matches!(kind, ServerKind::Vanilla | ServerKind::Forge | ServerKind::NeoForge)
-            && !args.iter().any(|a| a == "--nogui")
+            && !args.iter().any(|a| a == "--nogui" || a == "nogui")
         {
             args.push("--nogui".to_string());
         }
@@ -74,6 +88,10 @@ impl LaunchPlan {
             // the real knob, so we express the override as a system property that
             // the config writer also applies.
             args.push(format!("-Dlevel-name={world}"));
+        }
+        args.extend(cfg.launch.program_args().to_vec());
+        for extra in &cfg.program_args {
+            args.push(extra.clone());
         }
 
         let mut env = cfg.env.clone();
@@ -104,11 +122,7 @@ impl LaunchPlan {
 /// Jar name each server type expects. Modded installers write versioned jars; the
 /// providers rename them to these at install time so launching stays uniform.
 pub fn server_jar_name(kind: ServerKind) -> &'static str {
-    match kind {
-        ServerKind::BungeeCord | ServerKind::Waterfall => "proxy.jar",
-        ServerKind::Velocity => "velocity.jar",
-        _ => "server.jar",
-    }
+    kind.jar_name()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

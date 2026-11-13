@@ -35,6 +35,37 @@ pub enum ServerKind {
 }
 
 impl ServerKind {
+    /// The file name the panel standardises each server type's jar to, so the
+    /// launcher never has to remember what upstream called the build it fetched.
+    /// Providers write to this name; `sp-process` reads it.
+    /// Display name for pickers and log lines.
+    pub const fn label(&self) -> &'static str {
+        match self {
+            Self::Vanilla => "Vanilla",
+            Self::Paper => "Paper",
+            Self::Purpur => "Purpur",
+            Self::Folia => "Folia",
+            Self::Fabric => "Fabric",
+            Self::Quilt => "Quilt",
+            Self::Forge => "Forge",
+            Self::NeoForge => "NeoForge",
+            Self::Spigot => "Spigot",
+            Self::CraftBukkit => "CraftBukkit",
+            Self::BungeeCord => "BungeeCord",
+            Self::Waterfall => "Waterfall",
+            Self::Velocity => "Velocity",
+            Self::Geyser => "Geyser",
+        }
+    }
+
+    pub const fn jar_name(&self) -> &'static str {
+        match self {
+            Self::BungeeCord | Self::Waterfall => "proxy.jar",
+            Self::Velocity => "velocity.jar",
+            _ => "server.jar",
+        }
+    }
+
     pub const ALL: [ServerKind; 14] = [
         ServerKind::Vanilla,
         ServerKind::Paper,
@@ -333,9 +364,17 @@ pub enum RestartMode {
 }
 
 /// JVM + runtime configuration for one server.
+///
+/// `#[serde(default)]` on the struct is what lets a partially-filled PATCH be
+/// applied as "merge into current", which the settings drawer relies on.
+fn default_launch_mode() -> LaunchMode {
+    LaunchMode::jar(ServerKind::Vanilla.jar_name())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(default)]
 pub struct ServerRuntimeConfig {
     /// Hard memory limit in MiB (also drives `-Xms`/`-Xmx` when `tune_heap` is set).
     pub memory_mb: u32,
@@ -358,12 +397,19 @@ pub struct ServerRuntimeConfig {
     /// Server directory (absolute, canonicalised).
     pub server_dir: PathBuf,
     /// Bind address. `127.0.0.1` by default; LAN requires an explicit opt-in.
+    ///
+    /// A fresh install on a home machine must not expose an unauthenticated
+    /// RCON-free-but-server-query-open port to the whole network, so this is the
+    /// loopback address and the UI has to be told to change it.
     pub bind_address: String,
     /// Minecraft server port (0 for proxies, which manage their own).
     pub port: u16,
     /// `-Dcom.sun.management.jmxremote` off by default; when enabled, uses this port.
     pub jmx_port: Option<u16>,
     pub restart_policy: RestartPolicy,
+    /// How to point the JVM at the installed software (jar / classpath / argfile).
+    #[serde(default = "default_launch_mode")]
+    pub launch: LaunchMode,
     /// Run the server with `--world` set to this value (world switching).
     pub world_override: Option<String>,
 }
@@ -381,10 +427,11 @@ impl Default for ServerRuntimeConfig {
             shutdown_timeout_secs: 60,
             prefer_ipv4: true,
             server_dir: PathBuf::from("."),
-            bind_address: "0.0.0.0".into(),
+            bind_address: "127.0.0.1".into(),
             port: 25565,
             jmx_port: None,
             restart_policy: RestartPolicy::default(),
+            launch: LaunchMode::default(),
             world_override: None,
         }
     }
@@ -481,6 +528,67 @@ pub struct ServerWithState {
     pub next_backup_at_ms: Option<i64>,
     /// True when a newer build exists upstream (checked lazily, cached).
     pub update_available: Option<BuildInfo>,
+}
+
+/// How a JVM is pointed at its code, decided by the software's provider and stored
+/// per server so a restart after a settings change launches the same way.
+///
+/// Lives in `sp-core` (not `sp-providers`) because both the catalogue layer and the
+/// process layer need it and they must not depend on each other.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "kebab-case")]
+#[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
+pub enum LaunchMode {
+    /// `java <flags> -jar <jar> <args>` — the common case.
+    Jar {
+        /// Path relative to the server directory.
+        jar: String,
+        args: Vec<String>,
+    },
+    /// `java <flags> -cp <a:b:c> <mainClass> <args>` — legacy modded launchers.
+    Classpath {
+        /// Path fragments, joined with the platform path separator.
+        entries: Vec<String>,
+        main_class: String,
+        args: Vec<String>,
+    },
+    /// `java <flags> @<argfile> <args>` — Forge/NeoForge ≥1.17, whose installer
+    /// writes an argfile holding `-cp` plus `-D` properties. The JVM expands `@file`
+    /// itself, so no shell is involved.
+    ArgFile {
+        /// Path relative to the server directory.
+        argfile: String,
+        args: Vec<String>,
+    },
+}
+
+impl Default for LaunchMode {
+    fn default() -> Self {
+        Self::jar("server.jar")
+    }
+}
+
+impl LaunchMode {
+    /// The plain `java -jar server.jar` mode every unmodded server uses.
+    pub fn jar(jar: impl Into<String>) -> Self {
+        Self::Jar { jar: jar.into(), args: Vec::new() }
+    }
+
+    /// Program (not JVM) arguments the provider wants appended.
+    pub fn program_args(&self) -> &[String] {
+        match self {
+            Self::Jar { args, .. } | Self::Classpath { args, .. } | Self::ArgFile { args, .. } => args,
+        }
+    }
+
+    /// What appears between the JVM flags and the program args.
+    pub fn classpath_separator() -> &'static str {
+        if cfg!(windows) {
+            ";"
+        } else {
+            ":"
+        }
+    }
 }
 
 /// Live process facts, derived from the process manager (not the DB).

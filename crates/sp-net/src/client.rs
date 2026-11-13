@@ -45,6 +45,10 @@ pub struct HttpClient {
     inner: reqwest::Client,
     retry: Retry,
     service_hint: &'static str,
+    /// Optional prefix so callers can say `"/v2/projects/paper"`.
+    /// Two things need it: mirrors/self-hosted caches, and tests that point a
+    /// provider at a loopback mock instead of the real API.
+    base_url: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -54,6 +58,7 @@ pub struct HttpClientBuilder {
     connect_timeout: Option<Duration>,
     retry: Option<Retry>,
     service: Option<&'static str>,
+    base_url: Option<String>,
     proxy: Option<String>,
     default_headers: Vec<(String, String)>,
 }
@@ -85,6 +90,15 @@ impl HttpClientBuilder {
         self.default_headers.push((name.into(), value.into()));
         self
     }
+    /// Prefix for relative request paths, e.g. `https://mirror.example/paper-mirror`.
+    pub fn base_url(mut self, base: impl Into<String>) -> Self {
+        let b = base.into();
+        if !b.is_empty() {
+            self.base_url = Some(b);
+        }
+        self
+    }
+
     /// `http://host:port` or `socks5://host:port`.
     pub fn proxy(mut self, url: impl Into<String>) -> Self {
         self.proxy = Some(url.into());
@@ -134,6 +148,7 @@ impl HttpClientBuilder {
             inner,
             retry: self.retry.unwrap_or_default(),
             service_hint: self.service.unwrap_or("upstream"),
+            base_url: self.base_url.clone(),
         })
     }
 }
@@ -153,16 +168,36 @@ impl HttpClient {
         &self.inner
     }
 
+    pub fn base_url(&self) -> Option<&str> {
+        self.base_url.as_deref()
+    }
+
+    pub fn service(&self) -> &'static str {
+        self.service_hint
+    }
+
+    /// Join `url` onto the configured base when it is relative.
+    pub fn resolve(&self, url: &str) -> String {
+        match &self.base_url {
+            Some(base)
+                if !url.starts_with("http://") && !url.starts_with("https://") =>
+            {
+                format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+            }
+            _ => url.to_string(),
+        }
+    }
+
     pub fn get(&self, url: &str) -> reqwest::RequestBuilder {
-        self.inner.get(url)
+        self.inner.get(self.resolve(url))
     }
 
     pub fn post(&self, url: &str) -> reqwest::RequestBuilder {
-        self.inner.post(url)
+        self.inner.post(self.resolve(url))
     }
 
     pub fn head(&self, url: &str) -> reqwest::RequestBuilder {
-        self.inner.head(url)
+        self.inner.head(self.resolve(url))
     }
 
     /// `GET` → `T`, retried. Errors distinguish "not found" from "unreachable" so
@@ -177,7 +212,7 @@ impl HttpClient {
     }
 
     pub async fn get_text(&self, url: &str) -> Result<String, CoreError> {
-        self.send_retrying(self.inner.get(url)).await?.text().await.map_err(|e| {
+        self.send_retrying(self.get(url)).await?.text().await.map_err(|e| {
             CoreError::UpstreamUnavailable {
                 service: self.service_hint,
                 source: e.into(),
@@ -188,7 +223,7 @@ impl HttpClient {
     /// Like [`HttpClient::get_text`] but also returns response headers, so
     /// callers can read `X-Ratelimit-*` / `ETag` / `Cache-Control`.
     pub async fn get_text_with_headers(&self, url: &str) -> Result<(String, HeaderMap), CoreError> {
-        let resp = self.send_retrying(self.inner.get(url)).await?;
+        let resp = self.send_retrying(self.get(url)).await?;
         let headers = resp.headers().clone();
         let body = resp.text().await.map_err(|e| CoreError::UpstreamUnavailable {
             service: self.service_hint,
@@ -203,7 +238,6 @@ impl HttpClient {
         body: &B,
     ) -> Result<T, CoreError> {
         let resp = self
-            .inner
             .post(url)
             .json(body)
             .send()
