@@ -1,0 +1,40 @@
+version: 2
+updates:
+  # Minecraft server tooling rots fast: upstream APIs, Tauri and the web stack all
+  # move weekly, so PRs are opened often and squashed as they pass CI.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "06:00"
+      timezone: Europe/Warsaw
+    open-pull-requests-limit: 12
+    groups:
+      patch-and-minor:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
+    ignore:
+      # sqlx and axum get breaking releases that need code changes; leave them to a
+      # deliberate upgrade commit rather than a weekly surprise.
+      - dependency-name: "sqlx"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "axum"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: npm
+    directory: "/web"
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "06:00"
+      timezone: Europe/Warsaw
+    open-pull-requests-limit: 12
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: tuesday

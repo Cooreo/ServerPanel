@@ -1,0 +1,158 @@
+name: CI
+
+# Everything below is deliberately gated on files that may not exist yet: the
+# frontend jobs light up the moment web/package.json lands, without anyone editing
+# this file. A job that cannot possibly pass is worse than no job.
+on:
+  push:
+    branches: [main, "arena/**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Spigot build tests and Adoptium downloads must never be flaky on network.
+  NET: offline
+
+jobs:
+  rustfmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
+      # -D warnings is a hard requirement: a warning today is a bug next month.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::pedantic -A clippy::module_name_repetitions -A clippy::missing_errors_doc -A clippy::needless_pass_by_value -A clippy::too_many_lines
+
+  test:
+    name: Test (${{ matrix.os) }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            args: --workspace --all-features --no-fail-fast
+          # Windows is the primary target: the Job Object code path only exists
+          # there, and so does the path/ACL behaviour the file manager relies on.
+          - os: windows-latest
+            args: --workspace --no-fail-fast
+          - os: macos-latest
+            args: --workspace --no-fail-fast
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: test-${{ matrix.os }}
+      - name: Unit + integration tests
+        run: cargo test ${{ matrix.args }}
+      - name: Doc tests
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --doc --workspace
+
+  # The workspace must stay buildable at the declared MSRV, because distro
+  # toolchains (and the Windows installer's users) lag behind stable.
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.80"
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+      - run: cargo check --workspace --all-targets
+
+  web:
+    name: Web UI
+    if: ${{ hashFiles('web/package.json') != '' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npx eslint . --max-warnings 0
+      - name: Unit tests
+        run: npx vitest run
+      - name: Build
+        run: npm run build
+
+  e2e:
+    name: E2E (Playwright)
+    if: ${{ hashFiles('web/playwright.config.ts') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - name: Build the panel binary
+        run: cargo build --release -p sp-server
+      - name: Install browsers
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E
+        working-directory: web
+        run: npx playwright test
+        env:
+          CI: "true"
+
+  docker:
+    name: Docker image
+    if: ${{ hashFiles('Dockerfile') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/build-push-action@v6
+        with:
+          push: false
+          tags: serverpanel:ci
