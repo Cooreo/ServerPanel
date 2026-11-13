@@ -21,9 +21,10 @@ pub(crate) fn map(row: &sqlx::sqlite::SqliteRow) -> DbResult<ScheduledTask> {
     let cron = r::text(row, "cron")?;
     // `next_run_at_ms` is derived, never stored: a stored value goes stale the
     // moment the panel is off, and the scheduler recomputes on startup anyway.
-    let next = Cron::parse(&cron)
-        .ok()
-        .and_then(|c| c.next_after(chrono::Utc::now()).map(|t| t.timestamp_millis()));
+    let next = Cron::parse(&cron).ok().and_then(|c| {
+        c.next_after(chrono::Utc::now())
+            .map(|t| t.timestamp_millis())
+    });
     Ok(ScheduledTask {
         id: TaskId::new(r::i64(row, "id")?),
         server_id: r::i64_opt(row, "server_id")?.map(ServerId::new),
@@ -165,15 +166,15 @@ impl<'a> Tasks<'a> {
     /// Disable a task that has failed `threshold` times in a row, so a broken
     /// cron job cannot spam the console forever. Returns whether it was disabled.
     pub async fn auto_disable(&self, id: TaskId, threshold: u32) -> DbResult<bool> {
-        Ok(sqlx::query(
-            "UPDATE scheduled_tasks SET enabled = 0 WHERE id = ? AND fail_count >= ?",
+        Ok(
+            sqlx::query("UPDATE scheduled_tasks SET enabled = 0 WHERE id = ? AND fail_count >= ?")
+                .bind(id.get())
+                .bind(i64::from(threshold))
+                .execute(self.pool())
+                .await?
+                .rows_affected()
+                > 0,
         )
-        .bind(id.get())
-        .bind(i64::from(threshold))
-        .execute(self.pool())
-        .await?
-        .rows_affected()
-            > 0)
     }
 
     pub async fn delete(&self, id: TaskId) -> DbResult<()> {
@@ -189,11 +190,13 @@ impl<'a> Tasks<'a> {
     }
 
     pub async fn delete_for_server(&self, server_id: ServerId) -> DbResult<u64> {
-        Ok(sqlx::query("DELETE FROM scheduled_tasks WHERE server_id = ?")
-            .bind(server_id.get())
-            .execute(self.pool())
-            .await?
-            .rows_affected())
+        Ok(
+            sqlx::query("DELETE FROM scheduled_tasks WHERE server_id = ?")
+                .bind(server_id.get())
+                .execute(self.pool())
+                .await?
+                .rows_affected(),
+        )
     }
 }
 
@@ -204,19 +207,48 @@ mod tests {
 
     async fn db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::tempdir().unwrap();
-        (dir, Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap())
+        (
+            dir,
+            Db::connect(&DbPath::file(dir.path().join("p.db")))
+                .await
+                .unwrap(),
+        )
     }
 
     #[tokio::test]
     async fn create_update_run_delete() {
         let (_t, db) = db().await;
-        let t = db.tasks().create("nightly restart", None, TaskAction::Restart, "0 4 * * *", "", false, &[300, 60]).await.unwrap();
+        let t = db
+            .tasks()
+            .create(
+                "nightly restart",
+                None,
+                TaskAction::Restart,
+                "0 4 * * *",
+                "",
+                false,
+                &[300, 60],
+            )
+            .await
+            .unwrap();
         assert_eq!(t.action, TaskAction::Restart);
         assert!(t.enabled);
         assert_eq!(t.warn_before_secs, vec![300, 60]);
         assert!(t.next_run_at_ms.is_some(), "next run is derived from cron");
 
-        let u = db.tasks().update(t.id, "renamed", TaskAction::Broadcast, "*/10 * * * *", "hello", true, &[60]).await.unwrap();
+        let u = db
+            .tasks()
+            .update(
+                t.id,
+                "renamed",
+                TaskAction::Broadcast,
+                "*/10 * * * *",
+                "hello",
+                true,
+                &[60],
+            )
+            .await
+            .unwrap();
         assert_eq!(u.name, "renamed");
         assert_eq!(u.action, TaskAction::Broadcast);
         assert_eq!(u.payload, "hello");
@@ -234,10 +266,25 @@ mod tests {
     #[tokio::test]
     async fn invalid_cron_is_rejected_at_the_door() {
         let (_t, db) = db().await;
-        let err = db.tasks().create("bad", None, TaskAction::Command, "not a cron", "", false, &[]).await.unwrap_err();
+        let err = db
+            .tasks()
+            .create(
+                "bad",
+                None,
+                TaskAction::Command,
+                "not a cron",
+                "",
+                false,
+                &[],
+            )
+            .await
+            .unwrap_err();
         let core: CoreError = err.into();
         assert_eq!(core.code(), "validation", "{core}");
-        assert!(core.to_string().contains("minutes") || core.to_string().contains("fields"), "{core}");
+        assert!(
+            core.to_string().contains("minutes") || core.to_string().contains("fields"),
+            "{core}"
+        );
         // and it must not have been inserted
         assert!(db.tasks().list().await.unwrap().is_empty());
     }
@@ -245,15 +292,39 @@ mod tests {
     #[tokio::test]
     async fn auto_disable_after_repeated_failures() {
         let (_t, db) = db().await;
-        let t = db.tasks().create("flaky", None, TaskAction::Backup, "0 * * * *", "", false, &[]).await.unwrap();
+        let t = db
+            .tasks()
+            .create(
+                "flaky",
+                None,
+                TaskAction::Backup,
+                "0 * * * *",
+                "",
+                false,
+                &[],
+            )
+            .await
+            .unwrap();
         for _ in 0..2 {
-            db.tasks().record_run(t.id, false, Some("boom")).await.unwrap();
+            db.tasks()
+                .record_run(t.id, false, Some("boom"))
+                .await
+                .unwrap();
         }
         assert_eq!(db.tasks().get(t.id).await.unwrap().fail_count, 2);
-        assert!(!db.tasks().auto_disable(t.id, 3).await.unwrap(), "below threshold");
-        db.tasks().record_run(t.id, false, Some("boom")).await.unwrap();
+        assert!(
+            !db.tasks().auto_disable(t.id, 3).await.unwrap(),
+            "below threshold"
+        );
+        db.tasks()
+            .record_run(t.id, false, Some("boom"))
+            .await
+            .unwrap();
         assert!(db.tasks().auto_disable(t.id, 3).await.unwrap());
-        assert!(!db.tasks().get(t.id).await.unwrap().enabled, "disabled so it stops hammering");
+        assert!(
+            !db.tasks().get(t.id).await.unwrap().enabled,
+            "disabled so it stops hammering"
+        );
         // a success resets the counter
         db.tasks().set_enabled(t.id, true).await.unwrap();
         db.tasks().record_run(t.id, true, None).await.unwrap();
@@ -263,7 +334,18 @@ mod tests {
     #[tokio::test]
     async fn panel_wide_tasks_have_no_server() {
         let (_t, db) = db().await;
-        db.tasks().create("prune", None, TaskAction::PruneBackups, "0 5 * * 0", "", false, &[]).await.unwrap();
+        db.tasks()
+            .create(
+                "prune",
+                None,
+                TaskAction::PruneBackups,
+                "0 5 * * 0",
+                "",
+                false,
+                &[],
+            )
+            .await
+            .unwrap();
         let all = db.tasks().list().await.unwrap();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].server_id, None);

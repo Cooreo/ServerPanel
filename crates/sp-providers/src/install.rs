@@ -162,7 +162,11 @@ impl Installer {
     }
 
     /// Run the plan's installer, if any, and verify its output exists.
-    pub async fn run_installer(&self, plan: &InstallPlan, dest_dir: &Path) -> Result<bool, CoreError> {
+    pub async fn run_installer(
+        &self,
+        plan: &InstallPlan,
+        dest_dir: &Path,
+    ) -> Result<bool, CoreError> {
         let Some(run) = &plan.installer else {
             return Ok(false);
         };
@@ -185,7 +189,12 @@ impl Installer {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         self.emit(
-            &format!("$ {} -jar {} {}", self.java.display(), run.jar, run.args.join(" ")),
+            &format!(
+                "$ {} -jar {} {}",
+                self.java.display(),
+                run.jar,
+                run.args.join(" ")
+            ),
             LogStream::System,
         );
         let output = cmd
@@ -233,7 +242,10 @@ impl Installer {
     ///
     /// Only touches the file the plan says was produced, and never overwrites a
     /// different existing jar without a `.old` backup.
-    pub async fn canonicalize_jar(plan: &InstallPlan, dest_dir: &Path) -> Result<Option<PathBuf>, CoreError> {
+    pub async fn canonicalize_jar(
+        plan: &InstallPlan,
+        dest_dir: &Path,
+    ) -> Result<Option<PathBuf>, CoreError> {
         let wanted = match &plan.launch {
             crate::LaunchMode::Jar { jar, .. } => jar.clone(),
             _ => return Ok(None),
@@ -342,14 +354,29 @@ mod tests {
     #[test]
     fn safe_join_blocks_traversal_and_absolute_paths() {
         let root = Path::new("/srv/panels/1");
-        assert_eq!(safe_join(root, "server.jar").unwrap(), PathBuf::from("/srv/panels/1/server.jar"));
+        assert_eq!(
+            safe_join(root, "server.jar").unwrap(),
+            PathBuf::from("/srv/panels/1/server.jar")
+        );
         assert_eq!(
             safe_join(root, "libraries/a/b.jar").unwrap(),
             PathBuf::from("/srv/panels/1/libraries/a/b.jar")
         );
-        assert_eq!(safe_join(root, "./x/./y.jar").unwrap(), PathBuf::from("/srv/panels/1/x/y.jar"));
-        assert_eq!(safe_join(root, "a\\b.jar").unwrap(), PathBuf::from("/srv/panels/1/a/b.jar"));
-        for bad in ["../evil.jar", "libraries/../../evil", "/etc/passwd", "C:/Windows/x", "a/../b"] {
+        assert_eq!(
+            safe_join(root, "./x/./y.jar").unwrap(),
+            PathBuf::from("/srv/panels/1/x/y.jar")
+        );
+        assert_eq!(
+            safe_join(root, "a\\b.jar").unwrap(),
+            PathBuf::from("/srv/panels/1/a/b.jar")
+        );
+        for bad in [
+            "../evil.jar",
+            "libraries/../../evil",
+            "/etc/passwd",
+            "C:/Windows/x",
+            "a/../b",
+        ] {
             assert!(
                 matches!(safe_join(root, bad), Err(CoreError::PathEscape(_))),
                 "{bad} must be rejected"
@@ -369,7 +396,10 @@ mod tests {
             installer_ran: true,
             ..Default::default()
         };
-        assert_eq!(o.summary(), "3 file(s), 1.0 KiB, 2 reused, installer executed");
+        assert_eq!(
+            o.summary(),
+            "3 file(s), 1.0 KiB, 2 reused, installer executed"
+        );
     }
 
     fn plan_with(files: Vec<DownloadFile>) -> InstallPlan {
@@ -388,7 +418,10 @@ mod tests {
                 note: None,
             },
             files,
-            launch: crate::LaunchMode::Jar { jar: "server.jar".into(), args: vec![] },
+            launch: crate::LaunchMode::Jar {
+                jar: "server.jar".into(),
+                args: vec![],
+            },
             jvm_args: vec![],
             natives_dir: None,
             java_major: 21,
@@ -435,12 +468,21 @@ mod tests {
         let inst = Installer::new(HttpClient::new(), "java");
         let progress = ProgressReporter::silent("j", None, ProgressPhase::Download);
         // First pass: the file already matches the expected sha1 → zero requests.
-        let (n, bytes, reused) = inst.download_files(&plan, dir.path(), &progress).await.unwrap();
+        let (n, bytes, reused) = inst
+            .download_files(&plan, dir.path(), &progress)
+            .await
+            .unwrap();
         assert_eq!((n, bytes, reused), (1, 0, 1), "an identical file is reused");
         std::fs::remove_file(dir.path().join("server.jar")).unwrap();
-        let (n, bytes, reused) = inst.download_files(&plan, dir.path(), &progress).await.unwrap();
+        let (n, bytes, reused) = inst
+            .download_files(&plan, dir.path(), &progress)
+            .await
+            .unwrap();
         assert_eq!((n, bytes, reused), (1, payload.len() as u64, 0));
-        assert_eq!(std::fs::read(dir.path().join("server.jar")).unwrap(), payload);
+        assert_eq!(
+            std::fs::read(dir.path().join("server.jar")).unwrap(),
+            payload
+        );
         let _ = srv.await;
     }
 
@@ -466,10 +508,16 @@ mod tests {
             format!("http://127.0.0.1:{port}/server.jar"),
             "server.jar",
         )
-        .with_sha1(Some("0000000000000000000000000000000000000000".into()), None)]);
+        .with_sha1(
+            Some("0000000000000000000000000000000000000000".into()),
+            None,
+        )]);
         let inst = Installer::new(HttpClient::new(), "java");
         let progress = ProgressReporter::silent("j", None, ProgressPhase::Download);
-        let err = inst.download_files(&plan, dir.path(), &progress).await.unwrap_err();
+        let err = inst
+            .download_files(&plan, dir.path(), &progress)
+            .await
+            .unwrap_err();
         assert!(matches!(err, CoreError::ChecksumMismatch { .. }), "{err:?}");
         assert!(!dir.path().join("server.jar").exists());
         assert!(!dir.path().join("server.jar.part").exists());
@@ -487,7 +535,12 @@ mod tests {
 
         // Now let the "installer" be a script-free jar that does not exist on disk.
         plan.installer.as_mut().unwrap().jar = "nope.jar".into();
-        assert!(inst.run_installer(&plan, dir.path()).await.unwrap_err().to_string().contains("missing"));
+        assert!(inst
+            .run_installer(&plan, dir.path())
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("missing"));
     }
 
     fn placeholder_run() -> crate::InstallerRun {
@@ -506,49 +559,78 @@ mod tests {
         plan.installer = Some(placeholder_run());
         std::fs::write(dir.path().join("spigot-1.21.4.jar"), b"new").unwrap();
         std::fs::write(dir.path().join("server.jar"), b"old").unwrap();
-        let target = Installer::canonicalize_jar(&plan, dir.path()).await.unwrap().unwrap();
+        let target = Installer::canonicalize_jar(&plan, dir.path())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(target, dir.path().join("server.jar"));
         assert_eq!(std::fs::read(&target).unwrap(), b"new");
         assert!(!dir.path().join("spigot-1.21.4.jar").exists());
         let backups: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .flatten()
-            .filter(|e| e.file_name().to_string_lossy().starts_with("server.jar.old-"))
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("server.jar.old-")
+            })
             .collect();
         assert_eq!(backups.len(), 1, "the previous jar must survive");
         assert_eq!(std::fs::read(backups[0].path()).unwrap(), b"old");
 
         // No installer → the already-canonical file is simply reported.
         let mut plain = plan_with(vec![]);
-        plain.launch = crate::LaunchMode::ArgFile { argfile: "a.txt".into(), args: vec![] };
-        assert!(Installer::canonicalize_jar(&plain, dir.path()).await.unwrap().is_none(), "argfile installs rename nothing");
+        plain.launch = crate::LaunchMode::ArgFile {
+            argfile: "a.txt".into(),
+            args: vec![],
+        };
+        assert!(
+            Installer::canonicalize_jar(&plain, dir.path())
+                .await
+                .unwrap()
+                .is_none(),
+            "argfile installs rename nothing"
+        );
         // Nothing present at all → Ok(None), so the caller can report honestly.
         let mut empty = plan_with(vec![]);
         empty.installer = None;
-        assert!(Installer::canonicalize_jar(&empty, tempfile::tempdir().unwrap().path())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            Installer::canonicalize_jar(&empty, tempfile::tempdir().unwrap().path())
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
     fn receipt_round_trips_and_lands_in_the_server_dir() {
         let dir = tempfile::tempdir().unwrap();
-        let plan = plan_with(vec![DownloadFile::new(FileRole::ServerJar, "https://x/y.jar", "server.jar")]);
+        let plan = plan_with(vec![DownloadFile::new(
+            FileRole::ServerJar,
+            "https://x/y.jar",
+            "server.jar",
+        )]);
         let path = Installer::write_receipt(&plan, dir.path()).unwrap();
         assert_eq!(path.file_name().unwrap().to_string_lossy(), RECEIPT);
         let text = std::fs::read_to_string(&path).unwrap();
         let back = crate::plan_from_receipt(&text).unwrap();
         assert_eq!(back, plan);
-        assert!(text.contains("\"provider\": \"test\""), "the receipt is pure data");
-        assert!(!text.contains(RECEIPT), "the file name is not part of the payload");
+        assert!(
+            text.contains("\"provider\": \"test\""),
+            "the receipt is pure data"
+        );
+        assert!(
+            !text.contains(RECEIPT),
+            "the file name is not part of the payload"
+        );
     }
 
     #[tokio::test]
     async fn installer_output_is_streamed_to_the_console_bus() {
         let bus = Arc::new(EventBus::new(64));
         let mut rx = bus.subscribe();
-        let inst = Installer::new(HttpClient::new(), "java").with_console(bus.clone(), ServerId::new(7));
+        let inst =
+            Installer::new(HttpClient::new(), "java").with_console(bus.clone(), ServerId::new(7));
         inst.emit("hello from the installer", LogStream::System);
         let evt = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
             .await
@@ -607,7 +689,11 @@ mod tests {
                 let mut buf = [0u8; 2048];
                 let _ = sock.read(&mut buf).await;
                 let text = String::from_utf8_lossy(&buf[..].to_vec()).to_string();
-                let body = if text.contains("GET /lib") { &lib } else { &payload };
+                let body = if text.contains("GET /lib") {
+                    &lib
+                } else {
+                    &payload
+                };
                 let resp = format!(
                     "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                     body.len()
@@ -625,10 +711,18 @@ mod tests {
             hex::encode(sha1::Sha1::digest(&lib))
         };
         let plan = plan_with(vec![
-            DownloadFile::new(FileRole::ServerJar, format!("http://127.0.0.1:{port}/server.jar"), "server.jar")
-                .with_sha1(Some(sha), Some(payload.len() as u64)),
-            DownloadFile::new(FileRole::Library, format!("http://127.0.0.1:{port}/lib.jar"), "libraries/x/lib.jar")
-                .with_sha1(Some(lib_sha), Some(lib.len() as u64)),
+            DownloadFile::new(
+                FileRole::ServerJar,
+                format!("http://127.0.0.1:{port}/server.jar"),
+                "server.jar",
+            )
+            .with_sha1(Some(sha), Some(payload.len() as u64)),
+            DownloadFile::new(
+                FileRole::Library,
+                format!("http://127.0.0.1:{port}/lib.jar"),
+                "libraries/x/lib.jar",
+            )
+            .with_sha1(Some(lib_sha), Some(lib.len() as u64)),
         ]);
         let fake = FakeProvider { plan: plan.clone() };
         let from_provider = fake.plan(&VersionSelection::default()).await.unwrap();
@@ -640,9 +734,18 @@ mod tests {
         assert_eq!(outcome.files_written, 2);
         assert_eq!(outcome.bytes_downloaded, (payload.len() + lib.len()) as u64);
         assert!(!outcome.installer_ran);
-        assert_eq!(outcome.artifact.as_deref(), Some(dir.path().join("server.jar").as_path()));
-        assert_eq!(std::fs::read(dir.path().join("server.jar")).unwrap(), payload);
-        assert_eq!(std::fs::read(dir.path().join("libraries/x/lib.jar")).unwrap(), lib);
+        assert_eq!(
+            outcome.artifact.as_deref(),
+            Some(dir.path().join("server.jar").as_path())
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("server.jar")).unwrap(),
+            payload
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("libraries/x/lib.jar")).unwrap(),
+            lib
+        );
         assert_eq!(outcome.duration_ms.max(0), outcome.duration_ms);
         srv.abort();
     }

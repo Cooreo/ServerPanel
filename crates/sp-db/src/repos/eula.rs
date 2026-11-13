@@ -68,11 +68,13 @@ impl<'a> Eula<'a> {
     /// `eula.txt` says `true` but no agreement was recorded (folder imported from
     /// elsewhere): the wizard requires an explicit acceptance before first start.
     pub async fn has_any(&self, server_id: ServerId) -> DbResult<bool> {
-        Ok(sqlx::query("SELECT 1 AS x FROM eula_agreements WHERE server_id = ? LIMIT 1")
-            .bind(server_id.get())
-            .fetch_optional(self.pool())
-            .await?
-            .is_some())
+        Ok(
+            sqlx::query("SELECT 1 AS x FROM eula_agreements WHERE server_id = ? LIMIT 1")
+                .bind(server_id.get())
+                .fetch_optional(self.pool())
+                .await?
+                .is_some(),
+        )
     }
 }
 
@@ -80,8 +82,8 @@ impl<'a> Eula<'a> {
 mod tests {
     use super::*;
     use crate::db::{Db, DbPath};
-    use sp_core::model::{Role, ServerKind, ServerRuntimeConfig, InstallState};
     use crate::repos::ServerDraft;
+    use sp_core::model::{InstallState, Role, ServerKind, ServerRuntimeConfig};
     use std::path::PathBuf;
 
     async fn server(db: &Db) -> ServerId {
@@ -109,19 +111,40 @@ mod tests {
     #[tokio::test]
     async fn records_and_returns_latest() {
         let dir = tempfile::tempdir().unwrap();
-        let db = Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap();
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
         let sid = server(&db).await;
-        let uid = db.users().create("admin", "h", Role::Admin).await.unwrap().id;
+        let uid = db
+            .users()
+            .create("admin", "h", Role::Admin)
+            .await
+            .unwrap()
+            .id;
         assert!(!db.eula().has_any(sid).await.unwrap());
         assert!(db.eula().latest_for(sid).await.unwrap().is_none());
 
         db.eula()
-            .record(sid, Some(uid), "aaa", "https://aka.ms/MinecraftEULA", Some("ServerPanel/0.1.0"), Some("127.0.0.1"))
+            .record(
+                sid,
+                Some(uid),
+                "aaa",
+                "https://aka.ms/MinecraftEULA",
+                Some("ServerPanel/0.1.0"),
+                Some("127.0.0.1"),
+            )
             .await
             .unwrap();
         let second = db
             .eula()
-            .record(sid, Some(uid), "bbb", "https://aka.ms/MinecraftEULA", None, None)
+            .record(
+                sid,
+                Some(uid),
+                "bbb",
+                "https://aka.ms/MinecraftEULA",
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert!(second > 0);
@@ -134,14 +157,32 @@ mod tests {
     #[tokio::test]
     async fn deleting_a_user_keeps_the_agreement() {
         let dir = tempfile::tempdir().unwrap();
-        let db = Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap();
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
         let sid = server(&db).await;
-        let admin = db.users().create("admin", "h", Role::Admin).await.unwrap().id;
-        let victim = db.users().create("bob", "h", Role::Viewer).await.unwrap().id;
-        db.eula().record(sid, Some(victim), "x", "u", None, None).await.unwrap();
+        let admin = db
+            .users()
+            .create("admin", "h", Role::Admin)
+            .await
+            .unwrap()
+            .id;
+        let victim = db
+            .users()
+            .create("bob", "h", Role::Viewer)
+            .await
+            .unwrap()
+            .id;
+        db.eula()
+            .record(sid, Some(victim), "x", "u", None, None)
+            .await
+            .unwrap();
         db.users().delete(victim).await.unwrap();
         let latest = db.eula().latest_for(sid).await.unwrap().unwrap();
-        assert_eq!(latest.accepted_by, None, "the audit trail survives, the FK nulls out");
+        assert_eq!(
+            latest.accepted_by, None,
+            "the audit trail survives, the FK nulls out"
+        );
         assert!(admin.get() > 0);
     }
 }

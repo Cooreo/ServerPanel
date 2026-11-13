@@ -220,7 +220,10 @@ impl Selector {
                         .path()
                         .map(|p| rel(root, p))
                         .unwrap_or_else(|| err.to_string());
-                    plan.skipped.push(SkippedPath { path, reason: SkippedKind::Unreadable });
+                    plan.skipped.push(SkippedPath {
+                        path,
+                        reason: SkippedKind::Unreadable,
+                    });
                     continue;
                 }
             };
@@ -245,29 +248,47 @@ impl Selector {
                 continue;
             }
             if entry.file_type().is_symlink() && !self.follow_symlinks {
-                plan.skipped.push(SkippedPath { path: rels, reason: SkippedKind::Symlink });
+                plan.skipped.push(SkippedPath {
+                    path: rels,
+                    reason: SkippedKind::Symlink,
+                });
                 continue;
             }
             if !entry.file_type().is_file() {
-                plan.skipped.push(SkippedPath { path: rels, reason: SkippedKind::NotAFile });
+                plan.skipped.push(SkippedPath {
+                    path: rels,
+                    reason: SkippedKind::NotAFile,
+                });
                 continue;
             }
             let Ok(md) = entry.metadata() else {
-                plan.skipped.push(SkippedPath { path: rels, reason: SkippedKind::Unreadable });
+                plan.skipped.push(SkippedPath {
+                    path: rels,
+                    reason: SkippedKind::Unreadable,
+                });
                 continue;
             };
             let bytes = md.len();
             if self.max_file_bytes > 0 && bytes > self.max_file_bytes {
-                plan.skipped.push(SkippedPath { path: rels, reason: SkippedKind::Excluded });
+                plan.skipped.push(SkippedPath {
+                    path: rels,
+                    reason: SkippedKind::Excluded,
+                });
                 continue;
             }
             if excludes.matches(&rels).matched_any() {
-                plan.skipped.push(SkippedPath { path: rels, reason: SkippedKind::Excluded });
+                plan.skipped.push(SkippedPath {
+                    path: rels,
+                    reason: SkippedKind::Excluded,
+                });
                 continue;
             }
             if let Some(inc) = &includes {
                 if !inc.matches(&rels).matched_any() {
-                    plan.skipped.push(SkippedPath { path: rels, reason: SkippedKind::Excluded });
+                    plan.skipped.push(SkippedPath {
+                        path: rels,
+                        reason: SkippedKind::Excluded,
+                    });
                     continue;
                 }
             }
@@ -367,8 +388,7 @@ fn should_prune_dir(rel_path: &str, excludes: &GlobSet) -> bool {
     // A directory prunes when the pattern names it exactly (`logs`) or matches a
     // path under it (`logs/**`). globset does not treat `logs` as matching
     // `logs/crash.txt`, so both spellings are checked.
-    !excludes.matches(rel_path).none()
-        || !excludes.matches(format!("{rel_path}/")).none()
+    !excludes.matches(rel_path).none() || !excludes.matches(format!("{rel_path}/")).none()
 }
 
 fn mtime_ms(md: &std::fs::Metadata) -> i64 {
@@ -499,7 +519,10 @@ mod tests {
         assert!(paths.contains(&"server.jar"), "{paths:?}");
         assert!(paths.contains(&"mods/nested/deep/mod-b.jar"), "{paths:?}");
         assert!(paths.contains(&"world/region/r.0.0.mca"), "{paths:?}");
-        assert!(paths.contains(&"world/datapacks/bonus/pack.mcmeta"), "{paths:?}");
+        assert!(
+            paths.contains(&"world/datapacks/bonus/pack.mcmeta"),
+            "{paths:?}"
+        );
         assert!(paths.contains(&"libraries/net/minecart/minecart-1.21.jar"));
         // Default excludes.
         for gone in [
@@ -510,7 +533,11 @@ mod tests {
         ] {
             assert!(!paths.contains(&gone), "{gone} must be excluded by default");
             assert!(
-                plan.skipped.iter().any(|s| s.path == gone || plan.excluded_prefixes.iter().any(|p| p == gone.rsplit_once('/').unwrap().0)),
+                plan.skipped.iter().any(|s| s.path == gone
+                    || plan
+                        .excluded_prefixes
+                        .iter()
+                        .any(|p| p == gone.rsplit_once('/').unwrap().0)),
                 "{gone} should be reported as excluded somewhere: {:?}",
                 plan.skipped
             );
@@ -532,12 +559,21 @@ mod tests {
             .into_iter()
             .map(|f| f.rel)
             .collect();
-        assert!(with_logs.iter().any(|p| p.starts_with("logs/")), "{with_logs:?}");
+        assert!(
+            with_logs.iter().any(|p| p.starts_with("logs/")),
+            "{with_logs:?}"
+        );
 
         let plan = Selector::new().with_worlds(false).plan(dir.path()).unwrap();
         let paths: Vec<&str> = plan.files.iter().map(|f| f.rel.as_str()).collect();
-        assert!(paths.contains(&"world/region/r.0.0.mca"), "the default world stays");
-        assert!(!paths.iter().any(|p| p.starts_with("world_nether")), "{paths:?}");
+        assert!(
+            paths.contains(&"world/region/r.0.0.mca"),
+            "the default world stays"
+        );
+        assert!(
+            !paths.iter().any(|p| p.starts_with("world_nether")),
+            "{paths:?}"
+        );
     }
 
     #[test]
@@ -576,11 +612,19 @@ mod tests {
             .with_includes(&["mods/**".into()])
             .plan(dir.path())
             .unwrap();
-        assert_eq!(plan.files.len(), 2, "{:?}", plan.files.iter().map(|f| f.rel.clone()).collect::<Vec<_>>());
+        assert_eq!(
+            plan.files.len(),
+            2,
+            "{:?}",
+            plan.files.iter().map(|f| f.rel.clone()).collect::<Vec<_>>()
+        );
         let jar = &plan.files[0];
         assert_eq!(jar.rel, "mods/mod-a.jar");
         assert_eq!(jar.bytes, 3, "the size the archive will carry");
-        assert!(jar.modified_ms > 0, "mtime must be recorded for the manifest");
+        assert!(
+            jar.modified_ms > 0,
+            "mtime must be recorded for the manifest"
+        );
         assert_eq!(plan.total_bytes, 7);
         assert!(!jar.executable || cfg!(not(unix)));
     }
@@ -591,8 +635,13 @@ mod tests {
         tree(dir.path());
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink("/etc/passwd", dir.path().join("mods/innocent.jar")).unwrap();
-            std::os::unix::fs::symlink(dir.path().join("server.properties"), dir.path().join("config-link")).unwrap();
+            std::os::unix::fs::symlink("/etc/passwd", dir.path().join("mods/innocent.jar"))
+                .unwrap();
+            std::os::unix::fs::symlink(
+                dir.path().join("server.properties"),
+                dir.path().join("config-link"),
+            )
+            .unwrap();
         }
         #[cfg(not(unix))]
         {
@@ -611,7 +660,10 @@ mod tests {
         assert!(skipped.contains(&"mods/innocent.jar"), "{skipped:?}");
         assert!(skipped.contains(&"config-link"), "{skipped:?}");
         assert!(!plan.files.iter().any(|f| f.rel.contains("innocent")));
-        assert_eq!(fs::read_to_string(dir.path().join("server.properties")).unwrap(), "a=b\n");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("server.properties")).unwrap(),
+            "a=b\n"
+        );
     }
 
     #[test]
@@ -624,14 +676,20 @@ mod tests {
             .max_file_bytes(1024)
             .plan(dir.path())
             .unwrap();
-        assert_eq!(plan.files.len(), 1, "the 4 KiB file is over the per-file cap");
+        assert_eq!(
+            plan.files.len(),
+            1,
+            "the 4 KiB file is over the per-file cap"
+        );
         assert_eq!(plan.files[0].rel, "small.bin");
         assert_eq!(plan.skipped[0].reason, SkippedKind::Excluded);
     }
 
     #[test]
     fn a_missing_root_is_a_clear_error() {
-        let err = Selector::new().plan(Path::new("/nonexistent-server-panel-dir")).unwrap_err();
+        let err = Selector::new()
+            .plan(Path::new("/nonexistent-server-panel-dir"))
+            .unwrap_err();
         assert!(err.to_string().contains("does not exist"), "{err}");
         assert_eq!(err.code(), "not_found");
     }
@@ -646,16 +704,34 @@ mod tests {
         let files: Vec<String> = plan.files.iter().map(|f| f.rel.clone()).collect();
         let empties = Selector::empty_dirs(&plan, &files);
         assert!(empties.iter().any(|d| d == "plugins"), "{empties:?}");
-        assert!(empties.iter().any(|d| d.ends_with("empty-one")), "{empties:?}");
-        assert!(!empties.contains(&"world".to_string()), "world has files: {empties:?}");
+        assert!(
+            empties.iter().any(|d| d.ends_with("empty-one")),
+            "{empties:?}"
+        );
+        assert!(
+            !empties.contains(&"world".to_string()),
+            "world has files: {empties:?}"
+        );
     }
 
     #[test]
     fn ordering_is_deterministic_so_two_runs_agree() {
         let dir = tempfile::tempdir().unwrap();
         tree(dir.path());
-        let a: Vec<String> = Selector::new().plan(dir.path()).unwrap().files.into_iter().map(|f| f.rel).collect();
-        let b: Vec<String> = Selector::new().plan(dir.path()).unwrap().files.into_iter().map(|f| f.rel).collect();
+        let a: Vec<String> = Selector::new()
+            .plan(dir.path())
+            .unwrap()
+            .files
+            .into_iter()
+            .map(|f| f.rel)
+            .collect();
+        let b: Vec<String> = Selector::new()
+            .plan(dir.path())
+            .unwrap()
+            .files
+            .into_iter()
+            .map(|f| f.rel)
+            .collect();
         assert_eq!(a, b);
         let mut sorted = a.clone();
         sorted.sort();

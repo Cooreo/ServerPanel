@@ -124,7 +124,10 @@ pub async fn download(
 
     let part = job.part_path();
     let mut already = match tokio::fs::try_exists(&part).await {
-        Ok(true) => tokio::fs::metadata(&part).await.map(|m| m.len()).unwrap_or(0),
+        Ok(true) => tokio::fs::metadata(&part)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0),
         _ => 0,
     };
     // `size_hint` is the *whole* artifact size; resumed bytes are already counted
@@ -141,7 +144,9 @@ pub async fn download(
             Err(e) => {
                 let retryable = matches!(
                     e,
-                    CoreError::UpstreamUnavailable { .. } | CoreError::Io(_) | CoreError::RateLimited { .. }
+                    CoreError::UpstreamUnavailable { .. }
+                        | CoreError::Io(_)
+                        | CoreError::RateLimited { .. }
                 );
                 if !retryable || attempt >= 4 {
                     break Err(e);
@@ -149,7 +154,11 @@ pub async fn download(
                 let delay = std::time::Duration::from_millis(400 * 2u64.pow(attempt));
                 tracing::warn!(error = %e, attempt, part = %part.display(), "download failed, resuming");
                 if let Some(p) = progress {
-                    p.message(format!("{}: retry {attempt} in {} ms ({e})", job.label, delay.as_millis()));
+                    p.message(format!(
+                        "{}: retry {attempt} in {} ms ({e})",
+                        job.label,
+                        delay.as_millis()
+                    ));
                 }
                 tokio::time::sleep(delay).await;
             }
@@ -330,7 +339,9 @@ fn hashes_match(expected: &Hashes, actual: &Hashes) -> bool {
         (&expected.sha256, &actual.sha256),
         (&expected.sha512, &actual.sha512),
     ] {
-        let (Some(w), Some(g)) = (want, got) else { continue };
+        let (Some(w), Some(g)) = (want, got) else {
+            continue;
+        };
         // `normalise_digest` strips `sha256-` prefixes and case.
         let Ok((_, w)) = sp_core::verify::normalise_digest(w) else {
             return false;
@@ -386,7 +397,11 @@ pub async fn download_artifact(
 /// startup so an interrupted install does not pin disk forever).
 pub fn cleanup_stale_parts(dir: &Path, max_age: std::time::Duration) -> usize {
     let mut removed = 0;
-    for entry in walkdir::WalkDir::new(dir).max_depth(6).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(dir)
+        .max_depth(6)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -415,14 +430,20 @@ mod tests {
 
     /// Tiny raw HTTP server: no framework, exact control over 206/500 responses.
     /// Serves `GET /blob` (and ignores everything else).
-    async fn mock(payload: Vec<u8>, accept_ranges: bool, fail_first: u32) -> (String, Arc<AtomicU32>) {
+    async fn mock(
+        payload: Vec<u8>,
+        accept_ranges: bool,
+        fail_first: u32,
+    ) -> (String, Arc<AtomicU32>) {
         let hits = Arc::new(AtomicU32::new(0));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let hits2 = hits.clone();
         tokio::spawn(async move {
             loop {
-                let Ok((mut sock, _)) = listener.accept().await else { return };
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
                 let body = payload.clone();
                 let hits = hits2.clone();
                 let ar = accept_ranges;
@@ -507,7 +528,9 @@ mod tests {
         let job = DownloadJob::new(&url, &dest, "blob.bin")
             .with_hashes(expected.clone())
             .size_hint(Some(data.len() as u64));
-        let out = download(&HttpClient::new(), &job, Some(&progress)).await.unwrap();
+        let out = download(&HttpClient::new(), &job, Some(&progress))
+            .await
+            .unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), data);
         assert_eq!(out.hashes.sha256, expected.sha256);
         assert!(!out.reused);
@@ -549,7 +572,10 @@ mod tests {
         let err = download(&HttpClient::new(), &job, None).await.unwrap_err();
         assert!(matches!(err, CoreError::ChecksumMismatch { .. }), "{err:?}");
         assert!(!dest.exists(), "the bad file must never be installed");
-        assert!(!Path::new(&format!("{}.part", dest.display())).exists(), "nor may the part file survive");
+        assert!(
+            !Path::new(&format!("{}.part", dest.display())).exists(),
+            "nor may the part file survive"
+        );
     }
 
     #[tokio::test]
@@ -561,7 +587,10 @@ mod tests {
         let out = download(&HttpClient::new(), &job, None).await.unwrap();
         assert_eq!(std::fs::read(dir.path().join("b.bin")).unwrap(), data);
         assert!(out.hashes.sha1.is_some());
-        assert!(hits.load(Ordering::SeqCst) >= 3, "two failures then a success");
+        assert!(
+            hits.load(Ordering::SeqCst) >= 3,
+            "two failures then a success"
+        );
     }
 
     #[tokio::test]
@@ -571,8 +600,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (progress, bus) = reporter();
         let mut sub = bus.subscribe();
-        let job = DownloadJob::new(&url, dir.path().join("p.bin"), "p.bin").size_hint(Some(data.len() as u64));
-        download(&HttpClient::new(), &job, Some(&progress)).await.unwrap();
+        let job = DownloadJob::new(&url, dir.path().join("p.bin"), "p.bin")
+            .size_hint(Some(data.len() as u64));
+        download(&HttpClient::new(), &job, Some(&progress))
+            .await
+            .unwrap();
         let mut saw_progress = false;
         for _ in 0..64 {
             match tokio::time::timeout(std::time::Duration::from_millis(50), sub.recv()).await {
@@ -589,7 +621,10 @@ mod tests {
                 _ => break,
             }
         }
-        assert!(saw_progress, "progress must include byte counts and fractions");
+        assert!(
+            saw_progress,
+            "progress must include byte counts and fractions"
+        );
     }
 
     #[tokio::test]
@@ -619,15 +654,25 @@ mod tests {
         assert_eq!(job.part_path(), PathBuf::from("/tmp/out/y.part"));
         let h = Hashes::default();
         assert!(h.is_empty());
-        assert!(hashes_match(&h, &h), "nothing to check means nothing to fail");
+        assert!(
+            hashes_match(&h, &h),
+            "nothing to check means nothing to fail"
+        );
         let expected = Hashes {
             sha1: Some("xyz".into()),
             ..Default::default()
         };
-        assert!(!hashes_match(&expected, &h), "unnormalisable digest is a mismatch");
+        assert!(
+            !hashes_match(&expected, &h),
+            "unnormalisable digest is a mismatch"
+        );
         let good = sp_core::verify::hash_bytes(b"abc");
         assert!(hashes_match(&good, &good));
-        assert_eq!(good.digest_short("sha256").chars().count(), 17, "16 hex + ellipsis");
+        assert_eq!(
+            good.digest_short("sha256").chars().count(),
+            17,
+            "16 hex + ellipsis"
+        );
         assert_eq!(Hashes::default().digest_short("sha1"), "unknown");
     }
 
@@ -638,8 +683,14 @@ mod tests {
         std::fs::write(dir.path().join("b.jar"), b"x").unwrap();
         std::fs::create_dir_all(dir.path().join("sub")).unwrap();
         std::fs::write(dir.path().join("sub/c.part"), b"x").unwrap();
-        assert_eq!(cleanup_stale_parts(dir.path(), std::time::Duration::from_secs(3600)), 0);
-        assert_eq!(cleanup_stale_parts(dir.path(), std::time::Duration::ZERO), 2);
+        assert_eq!(
+            cleanup_stale_parts(dir.path(), std::time::Duration::from_secs(3600)),
+            0
+        );
+        assert_eq!(
+            cleanup_stale_parts(dir.path(), std::time::Duration::ZERO),
+            2
+        );
         assert!(dir.path().join("b.jar").exists());
     }
 }

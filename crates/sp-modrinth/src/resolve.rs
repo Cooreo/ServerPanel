@@ -159,7 +159,11 @@ pub struct InstallTarget {
 
 impl InstallTarget {
     pub fn new(server_dir: impl Into<PathBuf>) -> Self {
-        Self { server_dir: server_dir.into(), world: None, loader: None }
+        Self {
+            server_dir: server_dir.into(),
+            world: None,
+            loader: None,
+        }
     }
 
     pub fn with_world(mut self, world: impl Into<String>) -> Self {
@@ -187,10 +191,7 @@ impl InstallTarget {
 }
 
 /// Pick the version to install from a project's published versions.
-pub fn select_version(
-    versions: &[ModrinthVersion],
-    sel: &Selection,
-) -> Option<ModrinthVersion> {
+pub fn select_version(versions: &[ModrinthVersion], sel: &Selection) -> Option<ModrinthVersion> {
     let mut candidates: Vec<ModrinthVersion> = versions
         .iter()
         .filter(|v| {
@@ -215,15 +216,17 @@ pub fn select_version(
     match sel.prefer {
         Prefer::MostDownloads => candidates.sort_by_key(|v| std::cmp::Reverse(v.downloads)),
         Prefer::Featured => candidates.sort_by(|a, b| {
-            b.featured
-                .cmp(&a.featured)
-                .then_with(|| cmp_pub_date(b.date_published.as_deref(), a.date_published.as_deref()))
+            b.featured.cmp(&a.featured).then_with(|| {
+                cmp_pub_date(b.date_published.as_deref(), a.date_published.as_deref())
+            })
         }),
         Prefer::Newest => candidates.sort_by(|a, b| {
             a.version_type
                 .rank()
                 .cmp(&b.version_type.rank())
-                .then_with(|| cmp_pub_date(b.date_published.as_deref(), a.date_published.as_deref()))
+                .then_with(|| {
+                    cmp_pub_date(b.date_published.as_deref(), a.date_published.as_deref())
+                })
         }),
     }
     candidates.into_iter().next()
@@ -247,10 +250,7 @@ impl UnwrapDefault for Option<&str> {
 ///
 /// `projects` is `(project, its versions)` per requested project; `labels` maps a
 /// project id to the slug used in messages.
-pub fn resolve_from(
-    projects: &[(Project, Vec<ModrinthVersion>)],
-    sel: &Selection,
-) -> Resolution {
+pub fn resolve_from(projects: &[(Project, Vec<ModrinthVersion>)], sel: &Selection) -> Resolution {
     let mut out = Resolution::default();
     let mut chosen_slugs: BTreeSet<String> = BTreeSet::new();
     let mut by_id: BTreeMap<String, (Project, Vec<ModrinthVersion>)> = BTreeMap::new();
@@ -262,7 +262,9 @@ pub fn resolve_from(
     // 1. Incompatible declarations are global: collect them before choosing anything.
     let mut incompatible: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (p, vs) in projects {
-        let Some(v) = select_version(vs, sel) else { continue };
+        let Some(v) = select_version(vs, sel) else {
+            continue;
+        };
         for d in &v.dependencies {
             if d.dependency_type == DependencyType::Incompatible {
                 if let Some(pid) = &d.project_id {
@@ -388,9 +390,11 @@ pub fn resolve_from(
                 if !wanted {
                     continue;
                 }
-                let Some(pid) = dep.project_id.clone().or_else(|| {
-                    dep.version_id.as_ref().and_then(|_| None)
-                }) else {
+                let Some(pid) = dep
+                    .project_id
+                    .clone()
+                    .or_else(|| dep.version_id.as_ref().and_then(|_| None))
+                else {
                     out.warnings.push(format!(
                         "{} declares a dependency the panel cannot resolve by project id",
                         project.slug
@@ -466,7 +470,10 @@ pub async fn resolve_with_dependencies(
         .filter_map(|w| {
             let idx = w.find("project ")?;
             let tail = &w[idx + "project ".len()..];
-            let id: String = tail.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+            let id: String = tail
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
             (!id.is_empty()).then_some(id)
         })
         .collect();
@@ -588,12 +595,17 @@ pub async fn check_updates(
         return Ok(Vec::new());
     }
     let hashes: Vec<String> = installed.iter().map(|(_, h, _)| h.clone()).collect();
-    let known = client.versions_for_hashes(&hashes).await.unwrap_or_default();
+    let known = client
+        .versions_for_hashes(&hashes)
+        .await
+        .unwrap_or_default();
     let mut by_project: BTreeMap<String, ModrinthVersion> = BTreeMap::new();
     for v in known {
         // Keep the newest matching version per project that we learned about.
         match by_project.get(&v.project_id) {
-            Some(cur) if cmp_pub_date(Some(&cur.version_number), Some(&v.version_number)) != std::cmp::Ordering::Less => {}
+            Some(cur)
+                if cmp_pub_date(Some(&cur.version_number), Some(&v.version_number))
+                    != std::cmp::Ordering::Less => {}
             _ => {
                 by_project.insert(v.project_id.clone(), v);
             }
@@ -617,7 +629,9 @@ pub async fn check_updates(
             }
         };
         let versions = client.versions_of(&project.id, sel).await?;
-        let Some(latest) = select_version(&versions, sel) else { continue };
+        let Some(latest) = select_version(&versions, sel) else {
+            continue;
+        };
         if latest.id == version_id {
             continue;
         }
@@ -631,17 +645,16 @@ pub async fn check_updates(
                     .filter(|v| v.id == version_id)
                     .cloned()
             });
-        let Some(file) = latest.install_file() else { continue };
+        let Some(file) = latest.install_file() else {
+            continue;
+        };
         out.push(UpdateAvailable {
             project_slug: project.slug.clone(),
             version_id_current: current.as_ref().map(|c| c.id.clone()).unwrap_or_default(),
             version_number_current: current
                 .as_ref()
                 .map(|c| c.version_number.clone())
-                .or_else(|| {
-                    path.file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                })
+                .or_else(|| path.file_name().map(|n| n.to_string_lossy().to_string()))
                 .unwrap_or_default(),
             version_id_latest: latest.id.clone(),
             version_number_latest: latest.version_number.clone(),
@@ -651,7 +664,11 @@ pub async fn check_updates(
             size: file.size,
             breaking: current
                 .as_ref()
-                .map(|c| c.game_versions.iter().any(|g| !latest.game_versions.contains(g)))
+                .map(|c| {
+                    c.game_versions
+                        .iter()
+                        .any(|g| !latest.game_versions.contains(g))
+                })
                 .unwrap_or(false),
         });
     }
@@ -663,7 +680,15 @@ mod tests {
     use super::*;
     use crate::{FileHashes, ModrinthDependency, ModrinthFile, RequiredEnvs, SearchIndex};
 
-    fn version(id: &str, num: &str, mcs: &[&str], loaders: &[&str], ty: VersionType, server: EnvSupport, file: Option<&str>) -> ModrinthVersion {
+    fn version(
+        id: &str,
+        num: &str,
+        mcs: &[&str],
+        loaders: &[&str],
+        ty: VersionType,
+        server: EnvSupport,
+        file: Option<&str>,
+    ) -> ModrinthVersion {
         ModrinthVersion {
             id: id.into(),
             project_id: "p1".into(),
@@ -677,14 +702,20 @@ mod tests {
             downloads: 1,
             featured: false,
             dependencies: vec![],
-            required_envs: RequiredEnvs { client: EnvSupport::Optional, server },
+            required_envs: RequiredEnvs {
+                client: EnvSupport::Optional,
+                server,
+            },
             files: file
                 .map(|f| ModrinthFile {
                     url: format!("https://cdn/{f}"),
                     filename: f.into(),
                     primary: true,
                     size: 10,
-                    hashes: FileHashes { sha1: Some("aa".into()), sha512: None },
+                    hashes: FileHashes {
+                        sha1: Some("aa".into()),
+                        sha512: None,
+                    },
                 })
                 .into_iter()
                 .collect(),
@@ -723,12 +754,60 @@ mod tests {
     #[test]
     fn selection_filters_by_mc_loader_and_env() {
         let vs = vec![
-            version("old", "1.0.0", &["1.20.1"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("old.jar")),
-            version("other-loader", "2.0.0", &["1.21.4"], &["forge"], VersionType::Release, EnvSupport::Required, Some("f.jar")),
-            version("client-only", "2.0.0", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Unsupported, Some("c.jar")),
-            version("no-file", "2.0.0", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, None),
-            version("beta", "3.0.0-beta", &["1.21.4"], &["fabric"], VersionType::Beta, EnvSupport::Required, Some("b.jar")),
-            version("good", "2.5.0", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Optional, Some("g.jar")),
+            version(
+                "old",
+                "1.0.0",
+                &["1.20.1"],
+                &["fabric"],
+                VersionType::Release,
+                EnvSupport::Required,
+                Some("old.jar"),
+            ),
+            version(
+                "other-loader",
+                "2.0.0",
+                &["1.21.4"],
+                &["forge"],
+                VersionType::Release,
+                EnvSupport::Required,
+                Some("f.jar"),
+            ),
+            version(
+                "client-only",
+                "2.0.0",
+                &["1.21.4"],
+                &["fabric"],
+                VersionType::Release,
+                EnvSupport::Unsupported,
+                Some("c.jar"),
+            ),
+            version(
+                "no-file",
+                "2.0.0",
+                &["1.21.4"],
+                &["fabric"],
+                VersionType::Release,
+                EnvSupport::Required,
+                None,
+            ),
+            version(
+                "beta",
+                "3.0.0-beta",
+                &["1.21.4"],
+                &["fabric"],
+                VersionType::Beta,
+                EnvSupport::Required,
+                Some("b.jar"),
+            ),
+            version(
+                "good",
+                "2.5.0",
+                &["1.21.4"],
+                &["fabric"],
+                VersionType::Release,
+                EnvSupport::Optional,
+                Some("g.jar"),
+            ),
         ];
         assert_eq!(select_version(&vs, &sel()).unwrap().id, "good");
         // Prerelease opt-in picks the higher-numbered beta.
@@ -736,7 +815,15 @@ mod tests {
         s.allow_prerelease = true;
         assert_eq!(select_version(&vs, &s).unwrap().id, "beta");
         // A plugin server has no loader filter at all.
-        let plugins = vec![version("pl", "1.1", &["1.21.4"], &["paper"], VersionType::Release, EnvSupport::Required, Some("p.jar"))];
+        let plugins = vec![version(
+            "pl",
+            "1.1",
+            &["1.21.4"],
+            &["paper"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("p.jar"),
+        )];
         let mut s = sel();
         s.loaders.clear();
         assert_eq!(select_version(&plugins, &s).unwrap().id, "pl");
@@ -745,10 +832,26 @@ mod tests {
 
     #[test]
     fn prefer_changes_the_winner() {
-        let mut a = version("a", "1.0.0", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("a.jar"));
+        let mut a = version(
+            "a",
+            "1.0.0",
+            &["1.21.4"],
+            &["fabric"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("a.jar"),
+        );
         a.downloads = 1000;
         a.featured = true;
-        let b = version("b", "9.9.9", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("b.jar"));
+        let b = version(
+            "b",
+            "9.9.9",
+            &["1.21.4"],
+            &["fabric"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("b.jar"),
+        );
         let vs = vec![b.clone(), a.clone()];
         let mut s = sel();
         s.prefer = Prefer::MostDownloads;
@@ -756,19 +859,40 @@ mod tests {
         s.prefer = Prefer::Featured;
         assert_eq!(select_version(&vs, &s).unwrap().id, "a");
         s.prefer = Prefer::Newest;
-        assert_eq!(select_version(&vs, &s).unwrap().id, "b", "newest is by publish date, not downloads");
+        assert_eq!(
+            select_version(&vs, &s).unwrap().id,
+            "b",
+            "newest is by publish date, not downloads"
+        );
     }
 
     #[test]
     fn client_only_projects_are_skipped_with_an_explanation() {
         let projects = vec![(
-            project("p1", "zoomer-shaders", ProjectType::Mod, EnvSupport::Unsupported),
-            vec![version("v", "1", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("z.jar"))],
+            project(
+                "p1",
+                "zoomer-shaders",
+                ProjectType::Mod,
+                EnvSupport::Unsupported,
+            ),
+            vec![version(
+                "v",
+                "1",
+                &["1.21.4"],
+                &["fabric"],
+                VersionType::Release,
+                EnvSupport::Required,
+                Some("z.jar"),
+            )],
         )];
         let r = resolve_from(&projects, &sel());
         assert!(r.chosen.is_empty());
         assert_eq!(r.skipped[0].reason, SkipReason::ClientOnly);
-        assert!(r.skipped[0].message().contains("client-side only"), "{}", r.skipped[0].message());
+        assert!(
+            r.skipped[0].message().contains("client-side only"),
+            "{}",
+            r.skipped[0].message()
+        );
     }
 
     #[test]
@@ -780,7 +904,11 @@ mod tests {
             SkipReason::AlreadyInstalled,
             SkipReason::NoArtifact,
         ] {
-            let s = Skipped { project_slug: "x".into(), reason, detail: Some("because".into()) };
+            let s = Skipped {
+                project_slug: "x".into(),
+                reason,
+                detail: Some("because".into()),
+            };
             let m = s.message();
             assert!(m.contains("x") && m.contains("because"), "{m}");
             assert!(m.len() > 20, "{m}");
@@ -791,20 +919,48 @@ mod tests {
     fn no_compatible_version_says_what_was_wanted() {
         let projects = vec![(
             project("p1", "mod-a", ProjectType::Mod, EnvSupport::Required),
-            vec![version("v", "1", &["1.16.5"], &["forge"], VersionType::Release, EnvSupport::Required, Some("a.jar"))],
+            vec![version(
+                "v",
+                "1",
+                &["1.16.5"],
+                &["forge"],
+                VersionType::Release,
+                EnvSupport::Required,
+                Some("a.jar"),
+            )],
         )];
         let r = resolve_from(&projects, &sel());
         let s = &r.skipped[0];
         assert_eq!(s.reason, SkipReason::NoCompatibleVersion);
-        assert!(s.message().contains("1.21.4") && s.message().contains("fabric"), "{}", s.message());
+        assert!(
+            s.message().contains("1.21.4") && s.message().contains("fabric"),
+            "{}",
+            s.message()
+        );
     }
 
     #[test]
     fn required_dependencies_are_pulled_in_and_optional_are_not() {
-        let mut dep = version("lib-v", "2.0", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("lib.jar"));
+        let mut dep = version(
+            "lib-v",
+            "2.0",
+            &["1.21.4"],
+            &["fabric"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("lib.jar"),
+        );
         dep.project_id = "plib".into();
         dep.id = "lib-v".into();
-        let mut main = version("main-v", "1.0", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("main.jar"));
+        let mut main = version(
+            "main-v",
+            "1.0",
+            &["1.21.4"],
+            &["fabric"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("main.jar"),
+        );
         main.project_id = "pmain".into();
         main.dependencies = vec![
             ModrinthDependency {
@@ -820,18 +976,57 @@ mod tests {
                 dependency_type: DependencyType::Optional,
             },
         ];
-        let mut opt = version("opt-v", "1.0", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("opt.jar"));
+        let mut opt = version(
+            "opt-v",
+            "1.0",
+            &["1.21.4"],
+            &["fabric"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("opt.jar"),
+        );
         opt.project_id = "popt".into();
         let projects = vec![
-            (project("pmain", "main-mod", ProjectType::Mod, EnvSupport::Required), vec![main.clone()]),
-            (project("plib", "library-mod", ProjectType::Mod, EnvSupport::Required), vec![lib_v(&dep)]),
-            (project("popt", "optional-mod", ProjectType::Mod, EnvSupport::Required), vec![opt]),
+            (
+                project("pmain", "main-mod", ProjectType::Mod, EnvSupport::Required),
+                vec![main.clone()],
+            ),
+            (
+                project(
+                    "plib",
+                    "library-mod",
+                    ProjectType::Mod,
+                    EnvSupport::Required,
+                ),
+                vec![lib_v(&dep)],
+            ),
+            (
+                project(
+                    "popt",
+                    "optional-mod",
+                    ProjectType::Mod,
+                    EnvSupport::Required,
+                ),
+                vec![opt],
+            ),
         ];
         let r = resolve_from(&projects, &sel());
         let slugs: Vec<&str> = r.chosen.iter().map(|f| f.project_slug.as_str()).collect();
-        assert_eq!(slugs, vec!["main-mod", "library-mod"], "optional dependencies are not installed by default");
-        let lib = r.chosen.iter().find(|f| f.project_slug == "library-mod").unwrap();
-        assert_eq!(lib.required_by, vec!["main-mod"], "the UI must be able to say why");
+        assert_eq!(
+            slugs,
+            vec!["main-mod", "library-mod"],
+            "optional dependencies are not installed by default"
+        );
+        let lib = r
+            .chosen
+            .iter()
+            .find(|f| f.project_slug == "library-mod")
+            .unwrap();
+        assert_eq!(
+            lib.required_by,
+            vec!["main-mod"],
+            "the UI must be able to say why"
+        );
 
         let mut s = sel();
         s.include_optional_dependencies = true;
@@ -847,7 +1042,15 @@ mod tests {
 
     #[test]
     fn declared_incompatibility_wins_over_the_user_choice() {
-        let mut a = version("a-v", "1", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("a.jar"));
+        let mut a = version(
+            "a-v",
+            "1",
+            &["1.21.4"],
+            &["fabric"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("a.jar"),
+        );
         a.project_id = "pa".into();
         a.dependencies = vec![ModrinthDependency {
             version_id: None,
@@ -855,12 +1058,26 @@ mod tests {
             file_id: None,
             dependency_type: DependencyType::Incompatible,
         }];
-        let mut b = version("b-v", "1", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("b.jar"));
+        let mut b = version(
+            "b-v",
+            "1",
+            &["1.21.4"],
+            &["fabric"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("b.jar"),
+        );
         b.project_id = "pb".into();
         let r = resolve_from(
             &[
-                (project("pa", "mod-a", ProjectType::Mod, EnvSupport::Required), vec![a]),
-                (project("pb", "mod-b", ProjectType::Mod, EnvSupport::Required), vec![b]),
+                (
+                    project("pa", "mod-a", ProjectType::Mod, EnvSupport::Required),
+                    vec![a],
+                ),
+                (
+                    project("pb", "mod-b", ProjectType::Mod, EnvSupport::Required),
+                    vec![b],
+                ),
             ],
             &sel(),
         );
@@ -872,8 +1089,19 @@ mod tests {
 
     #[test]
     fn already_installed_can_be_respected_or_ignored() {
-        let vs = vec![version("v1", "1", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("a.jar"))];
-        let p = vec![(project("p1", "mod-a", ProjectType::Mod, EnvSupport::Required), vs)];
+        let vs = vec![version(
+            "v1",
+            "1",
+            &["1.21.4"],
+            &["fabric"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("a.jar"),
+        )];
+        let p = vec![(
+            project("p1", "mod-a", ProjectType::Mod, EnvSupport::Required),
+            vs,
+        )];
         let mut s = sel();
         s.skip_already_installed = true;
         s.installed.insert("p1".into(), "v1".into());
@@ -881,32 +1109,76 @@ mod tests {
         assert!(r.chosen.is_empty());
         assert_eq!(r.skipped[0].reason, SkipReason::AlreadyInstalled);
         s.skip_already_installed = false;
-        assert_eq!(resolve_from(&p, &s).chosen.len(), 1, "a repair install must still work");
+        assert_eq!(
+            resolve_from(&p, &s).chosen.len(),
+            1,
+            "a repair install must still work"
+        );
     }
 
     #[test]
     fn destinations_follow_project_type() {
-        let mut datapack = version("dp", "1", &["1.21.4"], &["fabric"], VersionType::Release, EnvSupport::Required, Some("d.zip"));
+        let mut datapack = version(
+            "dp",
+            "1",
+            &["1.21.4"],
+            &["fabric"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("d.zip"),
+        );
         datapack.project_id = "pdp".into();
-        let mut plugin = version("pl", "1", &["1.21.4"], &["paper"], VersionType::Release, EnvSupport::Required, Some("p.jar"));
+        let mut plugin = version(
+            "pl",
+            "1",
+            &["1.21.4"],
+            &["paper"],
+            VersionType::Release,
+            EnvSupport::Required,
+            Some("p.jar"),
+        );
         plugin.project_id = "ppl".into();
-        let mut shader = version("sh", "1", &["1.21.4"], &["optifine"], VersionType::Release, EnvSupport::Optional, Some("s.zip"));
+        let mut shader = version(
+            "sh",
+            "1",
+            &["1.21.4"],
+            &["optifine"],
+            VersionType::Release,
+            EnvSupport::Optional,
+            Some("s.zip"),
+        );
         shader.project_id = "psh".into();
         let r = resolve_from(
             &[
-                (project("pdp", "pack", ProjectType::Datapack, EnvSupport::Required), vec![datapack]),
-                (project("ppl", "plugin", ProjectType::Plugin, EnvSupport::Required), vec![plugin]),
-                (project("psh", "shader", ProjectType::Shader, EnvSupport::Optional), vec![shader]),
+                (
+                    project("pdp", "pack", ProjectType::Datapack, EnvSupport::Required),
+                    vec![datapack],
+                ),
+                (
+                    project("ppl", "plugin", ProjectType::Plugin, EnvSupport::Required),
+                    vec![plugin],
+                ),
+                (
+                    project("psh", "shader", ProjectType::Shader, EnvSupport::Optional),
+                    vec![shader],
+                ),
             ],
-            &Selection { mc_version: Some("1.21.4".into()), loaders: vec![], ..Default::default() },
+            &Selection {
+                mc_version: Some("1.21.4".into()),
+                loaders: vec![],
+                ..Default::default()
+            },
         );
         assert_eq!(r.chosen[0].dest_dir, "world/datapacks");
         assert_eq!(r.chosen[1].dest_dir, "plugins");
         assert_eq!(r.chosen[0].dest_rel(), "world/datapacks/d.zip");
-        assert!(r
-            .warnings
-            .iter()
-            .any(|w| w.contains("shader") && w.contains("not installed")), "{:?}", r.warnings);
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.contains("shader") && w.contains("not installed")),
+            "{:?}",
+            r.warnings
+        );
     }
 
     #[test]
@@ -929,7 +1201,10 @@ mod tests {
         }
         // No world configured → the default world, not an error.
         let t2 = InstallTarget::new(Path::new("/srv/panels/3"));
-        assert!(t2.resolve("datapacks/z").unwrap().ends_with("world/datapacks/z"));
+        assert!(t2
+            .resolve("datapacks/z")
+            .unwrap()
+            .ends_with("world/datapacks/z"));
     }
 
     #[test]
@@ -937,13 +1212,26 @@ mod tests {
         let mut r = Resolution::default();
         assert_eq!(r.summary(), "nothing to do");
         r.chosen.push(ResolvedFile {
-            project_id: "p".into(), project_slug: "s".into(), version_id: "v".into(),
-            version_number: "1".into(), kind: ProjectType::Mod, file_name: "f.jar".into(),
-            url: "u".into(), sha1: None, sha512: None, size: 0, dest_dir: "mods".into(),
-            required_by: vec![], enabled: true,
+            project_id: "p".into(),
+            project_slug: "s".into(),
+            version_id: "v".into(),
+            version_number: "1".into(),
+            kind: ProjectType::Mod,
+            file_name: "f.jar".into(),
+            url: "u".into(),
+            sha1: None,
+            sha512: None,
+            size: 0,
+            dest_dir: "mods".into(),
+            required_by: vec![],
+            enabled: true,
         });
         assert_eq!(r.summary(), "1 file(s) to install");
-        r.skipped.push(Skipped { project_slug: "x".into(), reason: SkipReason::NoArtifact, detail: None });
+        r.skipped.push(Skipped {
+            project_slug: "x".into(),
+            reason: SkipReason::NoArtifact,
+            detail: None,
+        });
         assert_eq!(r.summary(), "1 file(s) to install, 1 skipped");
         assert!(!r.is_empty());
     }
@@ -971,7 +1259,11 @@ mod tests {
                 let _ = sock.shutdown().await;
             }
         });
-        let client = ModrinthClient::with_base(&format!("http://127.0.0.1:{port}"), std::time::Duration::from_secs(1)).unwrap();
+        let client = ModrinthClient::with_base(
+            &format!("http://127.0.0.1:{port}"),
+            std::time::Duration::from_secs(1),
+        )
+        .unwrap();
         let mut res = Resolution::default();
         res.chosen.push(ResolvedFile {
             project_id: "p".into(),
@@ -1003,7 +1295,10 @@ mod tests {
         // The download re-fetches and overwrites: the mismatch is on the reuse check,
         // so either an error or a restored file is acceptable — but never a bad file.
         if err.is_ok() {
-            assert_eq!(std::fs::read(dir.path().join("mods/sodium.jar")).unwrap(), payload);
+            assert_eq!(
+                std::fs::read(dir.path().join("mods/sodium.jar")).unwrap(),
+                payload
+            );
         }
         srv.abort();
     }
@@ -1019,7 +1314,14 @@ mod tests {
         assert!(s.contains("query=sodium"));
         assert!(s.contains("index=relevance"));
         assert!(s.contains("facets="));
-        let decoded = percent_decode(s.split("facets=").nth(1).unwrap().split('&').next().unwrap());
+        let decoded = percent_decode(
+            s.split("facets=")
+                .nth(1)
+                .unwrap()
+                .split('&')
+                .next()
+                .unwrap(),
+        );
         assert!(decoded.contains("project_type:mod"), "{decoded}");
         assert!(decoded.contains("server_side:optional"));
         assert!(decoded.contains("versions:1.21.4"));
@@ -1032,7 +1334,13 @@ mod tests {
         let mut i = 0;
         while i < bytes.len() {
             if bytes[i] == b'%' && i + 2 < bytes.len() {
-                out.push(u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("00"), 16).unwrap_or(0));
+                out.push(
+                    u8::from_str_radix(
+                        std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("00"),
+                        16,
+                    )
+                    .unwrap_or(0),
+                );
                 i += 3;
             } else {
                 out.push(bytes[i]);

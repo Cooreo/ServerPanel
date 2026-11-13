@@ -71,9 +71,13 @@ impl Db {
                 }
                 // `filename` rather than a `sqlite://` URL: Windows paths contain
                 // backslashes and drive colons, which URL parsing mangles.
-                SqliteConnectOptions::new().filename(p).create_if_missing(true)
+                SqliteConnectOptions::new()
+                    .filename(p)
+                    .create_if_missing(true)
             }
-            DbPath::Memory => SqliteConnectOptions::new().in_memory(true).shared_cache(true),
+            DbPath::Memory => SqliteConnectOptions::new()
+                .in_memory(true)
+                .shared_cache(true),
         };
         Ok(base
             // WAL: readers never block the writer, which matters because the
@@ -122,8 +126,12 @@ impl Db {
 
     /// `PRAGMA integrity_check` — surfaced by `serverpanel doctor`.
     pub async fn integrity_check(&self) -> DbResult<String> {
-        let row = sqlx::query("PRAGMA integrity_check").fetch_one(&self.pool).await?;
-        Ok(row.try_get::<String, _>("integrity_check").unwrap_or_else(|_| "ok".into()))
+        let row = sqlx::query("PRAGMA integrity_check")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row
+            .try_get::<String, _>("integrity_check")
+            .unwrap_or_else(|_| "ok".into()))
     }
 
     pub async fn vacuum(&self) -> DbResult<()> {
@@ -213,7 +221,10 @@ mod tests {
         let path = dir.path().join("nested").join("panel.db");
         {
             let db = Db::connect(&DbPath::file(&path)).await.unwrap();
-            db.settings().set("boot_count", &serde_json::json!(1)).await.unwrap();
+            db.settings()
+                .set("boot_count", &serde_json::json!(1))
+                .await
+                .unwrap();
             db.checkpoint().await.unwrap();
         }
         assert!(path.exists(), "parent dir must be created automatically");

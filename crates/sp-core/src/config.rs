@@ -90,7 +90,10 @@ pub struct DataSection {
 
 impl Default for DataSection {
     fn default() -> Self {
-        Self { root: None, preserve_on_uninstall: true }
+        Self {
+            root: None,
+            preserve_on_uninstall: true,
+        }
     }
 }
 
@@ -324,7 +327,11 @@ pub struct TunnelSection {
 
 impl Default for TunnelSection {
     fn default() -> Self {
-        Self { enabled: false, config_path: None, auto_update: false }
+        Self {
+            enabled: false,
+            config_path: None,
+            auto_update: false,
+        }
     }
 }
 
@@ -346,8 +353,8 @@ impl PanelConfig {
     }
 
     pub fn load_from(path: Option<&Path>) -> Result<Self, CoreError> {
-        let mut value = serde_json::to_value(Self::default())
-            .map_err(|e| CoreError::Serde(e.to_string()))?;
+        let mut value =
+            serde_json::to_value(Self::default()).map_err(|e| CoreError::Serde(e.to_string()))?;
 
         if let Some(path) = path {
             if path.exists() {
@@ -396,10 +403,12 @@ fn toml_to_json(v: toml::Value) -> serde_json::Value {
         toml::Value::Float(f) => serde_json::Value::from(f),
         toml::Value::Boolean(b) => serde_json::Value::from(b),
         toml::Value::Datetime(d) => serde_json::Value::String(d.to_string()),
-        toml::Value::Array(a) => serde_json::Value::Array(a.into_iter().map(toml_to_json).collect()),
-        toml::Value::Table(t) => serde_json::Value::Object(
-            t.into_iter().map(|(k, v)| (k, toml_to_json(v))).collect(),
-        ),
+        toml::Value::Array(a) => {
+            serde_json::Value::Array(a.into_iter().map(toml_to_json).collect())
+        }
+        toml::Value::Table(t) => {
+            serde_json::Value::Object(t.into_iter().map(|(k, v)| (k, toml_to_json(v))).collect())
+        }
     }
 }
 
@@ -431,7 +440,9 @@ fn merge(dst: &mut serde_json::Value, src: serde_json::Value, at: &str) -> Resul
 /// Values are parsed as JSON when possible (numbers, bools, arrays), else as strings.
 fn apply_env_overrides(dst: &mut serde_json::Value, vars: &[(String, String)]) {
     for (key, raw) in vars {
-        let Some(rest) = key.strip_prefix(ENV_PREFIX) else { continue };
+        let Some(rest) = key.strip_prefix(ENV_PREFIX) else {
+            continue;
+        };
         // Owned segments, because `SERVERPANEL__X__Y` is case-insensitive for the
         // path but the JSON keys are lowercase, so the walk cannot borrow `rest`.
         let path: Vec<String> = rest.split("__").map(|s| s.to_ascii_lowercase()).collect();
@@ -515,7 +526,10 @@ mod tests {
             &vec![
                 ("SERVERPANEL__PANEL__PORT".into(), "9999".into()),
                 ("SERVERPANEL__AUTH__CSRF".into(), "false".into()),
-                ("SERVERPANEL__SERVERS__ALLOWED_PORT_MIN".into(), "25000".into()),
+                (
+                    "SERVERPANEL__SERVERS__ALLOWED_PORT_MIN".into(),
+                    "25000".into(),
+                ),
                 ("SOMETHING_ELSE".into(), "ignored".into()),
             ],
         );

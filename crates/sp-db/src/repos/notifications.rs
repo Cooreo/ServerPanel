@@ -57,7 +57,11 @@ impl<'a> Notifications<'a> {
         .last_insert_rowid())
     }
 
-    pub async fn pending(&self, limit: u32, max_attempts: u32) -> DbResult<Vec<QueuedNotification>> {
+    pub async fn pending(
+        &self,
+        limit: u32,
+        max_attempts: u32,
+    ) -> DbResult<Vec<QueuedNotification>> {
         let rows = sqlx::query(
             "SELECT id, channel, title, body, level, server_id, attempts FROM notifications
              WHERE delivered_at_ms IS NULL AND attempts < ? ORDER BY id LIMIT ?",
@@ -91,22 +95,26 @@ impl<'a> Notifications<'a> {
     }
 
     pub async fn mark_failed(&self, id: i64, error: &str) -> DbResult<()> {
-        let _ = sqlx::query("UPDATE notifications SET attempts = attempts + 1, last_error = ? WHERE id = ?")
-            .bind(error)
-            .bind(id)
-            .execute(self.pool())
-            .await?;
+        let _ = sqlx::query(
+            "UPDATE notifications SET attempts = attempts + 1, last_error = ? WHERE id = ?",
+        )
+        .bind(error)
+        .bind(id)
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 
     /// Drop delivered rows older than `keep_days` (keeps failures for the log page).
     pub async fn prune(&self, keep_days: u32) -> DbResult<u64> {
         let cutoff = now_ms() - i64::from(keep_days.max(1)) * 86_400_000;
-        Ok(sqlx::query("DELETE FROM notifications WHERE delivered_at_ms IS NOT NULL AND delivered_at_ms < ?")
-            .bind(cutoff)
-            .execute(self.pool())
-            .await?
-            .rows_affected())
+        Ok(sqlx::query(
+            "DELETE FROM notifications WHERE delivered_at_ms IS NOT NULL AND delivered_at_ms < ?",
+        )
+        .bind(cutoff)
+        .execute(self.pool())
+        .await?
+        .rows_affected())
     }
 
     pub async fn recent(&self, limit: u32) -> DbResult<Vec<serde_json::Value>> {
@@ -141,19 +149,37 @@ mod tests {
     #[tokio::test]
     async fn queue_retries_then_delivers() {
         let dir = tempfile::tempdir().unwrap();
-        let db = Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap();
-        let id = db.notifications().enqueue("discord", "Backup done", "world-1 tzst 40 MB", NotificationLevel::Success, Some(3)).await.unwrap();
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
+        let id = db
+            .notifications()
+            .enqueue(
+                "discord",
+                "Backup done",
+                "world-1 tzst 40 MB",
+                NotificationLevel::Success,
+                Some(3),
+            )
+            .await
+            .unwrap();
         let pending = db.notifications().pending(10, 3).await.unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].level, NotificationLevel::Success);
         assert_eq!(pending[0].attempts, 0);
 
-        db.notifications().mark_failed(id, "429 slow down").await.unwrap();
+        db.notifications()
+            .mark_failed(id, "429 slow down")
+            .await
+            .unwrap();
         let again = db.notifications().pending(10, 3).await.unwrap();
         assert_eq!(again[0].attempts, 1);
         db.notifications().mark_failed(id, "429").await.unwrap();
         db.notifications().mark_failed(id, "429").await.unwrap();
-        assert!(db.notifications().pending(10, 3).await.unwrap().is_empty(), "gives up after max_attempts");
+        assert!(
+            db.notifications().pending(10, 3).await.unwrap().is_empty(),
+            "gives up after max_attempts"
+        );
         let recent = db.notifications().recent(5).await.unwrap();
         assert_eq!(recent[0]["lastError"], serde_json::json!("429"));
 

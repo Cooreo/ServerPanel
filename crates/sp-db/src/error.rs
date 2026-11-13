@@ -55,7 +55,9 @@ impl From<DbError> for CoreError {
             DbError::Corrupt { column, value } => CoreError::Db(format!(
                 "column {column} contained unrecognised value `{value}`"
             )),
-            DbError::Migration { name, reason } => CoreError::Db(format!("migration {name}: {reason}")),
+            DbError::Migration { name, reason } => {
+                CoreError::Db(format!("migration {name}: {reason}"))
+            }
             DbError::SchemaTooNew { found, wanted } => CoreError::Db(format!(
                 "database schema v{found} is newer than this build (v{wanted}); update ServerPanel"
             )),

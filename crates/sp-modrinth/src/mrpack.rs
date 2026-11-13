@@ -140,7 +140,9 @@ impl PackIndex {
     /// Parse and validate the index document alone.
     pub fn from_json(text: &str) -> Result<Self, CoreError> {
         let idx: PackIndex = serde_json::from_str(text).map_err(|e| {
-            CoreError::other(format!("{INDEX_FILE} is not valid Modrinth index JSON: {e}"))
+            CoreError::other(format!(
+                "{INDEX_FILE} is not valid Modrinth index JSON: {e}"
+            ))
         })?;
         if idx.meta.version != 1 {
             return Err(CoreError::other(format!(
@@ -159,7 +161,10 @@ impl PackIndex {
         // written, not halfway through a 40-file install.
         for f in &idx.files {
             validate_rel_path(&f.path).map_err(|e| {
-                CoreError::PathEscape(format!("pack file {} is not a safe relative path: {e}", f.path))
+                CoreError::PathEscape(format!(
+                    "pack file {} is not a safe relative path: {e}",
+                    f.path
+                ))
             })?;
             if f.downloads.is_empty() {
                 return Err(CoreError::other(format!(
@@ -329,7 +334,9 @@ pub fn overrides(pack: &Path) -> Result<OverrideSummary, CoreError> {
     let zip = zip::ZipArchive::new(file).map_err(|e| CoreError::other(format!("zip: {e}")))?;
     let mut out = OverrideSummary::default();
     for i in 0..zip.len() {
-        let entry = zip.by_index(i).map_err(|e| CoreError::other(format!("zip: {e}")))?;
+        let entry = zip
+            .by_index(i)
+            .map_err(|e| CoreError::other(format!("zip: {e}")))?;
         let name = match entry.enclosed_name() {
             Some(n) => n.to_string_lossy().replace('\\', "/"),
             None => return Err(CoreError::PathEscape(format!("zip entry {}", entry.name()))),
@@ -367,7 +374,9 @@ pub fn extract_overrides(
                 .by_index(i)
                 .map_err(|e| CoreError::other(format!("zip entry: {e}")))?;
             let raw = entry.name().to_string();
-            let Some(rel) = raw.strip_prefix(prefix) else { continue };
+            let Some(rel) = raw.strip_prefix(prefix) else {
+                continue;
+            };
             if rel.is_empty() || rel.ends_with('/') {
                 continue;
             }
@@ -379,7 +388,11 @@ pub fn extract_overrides(
                     )))
                 }
             };
-            let rel = rel.rsplit(prefix).next().unwrap_or(rel.as_str()).to_string();
+            let rel = rel
+                .rsplit(prefix)
+                .next()
+                .unwrap_or(rel.as_str())
+                .to_string();
             validate_rel_path(&rel)?;
             let out = safe_join(dest, &rel)?;
             if let Some(parent) = out.parent() {
@@ -454,7 +467,8 @@ mod tests {
                "downloads":["https://cdn.modrinth.test/bonus.zip"],"fileSize":2}
             ]
         });
-        w.write_all(serde_json::to_string(&index).unwrap().as_bytes()).unwrap();
+        w.write_all(serde_json::to_string(&index).unwrap().as_bytes())
+            .unwrap();
         w.finish().unwrap();
         let _ = jar;
         path
@@ -482,7 +496,10 @@ mod tests {
             },
             "base64 → hex must match what sp_core::verify computes"
         );
-        assert!(idx.files[0].sha512_hex().unwrap().is_none(), "null sha512 stays None");
+        assert!(
+            idx.files[0].sha512_hex().unwrap().is_none(),
+            "null sha512 stays None"
+        );
     }
 
     #[test]
@@ -521,12 +538,19 @@ mod tests {
         // Nothing on disk yet: both server files are planned.
         let p = plan(&idx, &server, Side::Server, false).unwrap();
         assert_eq!(p.len(), 2);
-        assert_eq!(p[0].url, "https://cdn.modrinth.test/data/x/versions/y/testmod.jar");
+        assert_eq!(
+            p[0].url,
+            "https://cdn.modrinth.test/data/x/versions/y/testmod.jar"
+        );
 
         // Write the correct bytes → that entry disappears from the plan.
         std::fs::write(server.join("mods/testmod.jar"), b"MODJAR").unwrap();
         let p = plan(&idx, &server, Side::Server, false).unwrap();
-        assert_eq!(p.len(), 1, "an already-correct file must not be re-downloaded");
+        assert_eq!(
+            p.len(),
+            1,
+            "an already-correct file must not be re-downloaded"
+        );
         assert_eq!(p[0].path, "world/datapacks/bonus.zip");
 
         // Corrupt it → planned again, because the hash no longer matches.
@@ -540,7 +564,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pack = make_pack(dir.path());
         let summary = overrides(&pack).unwrap();
-        assert_eq!(summary.total(), 1, "one logical path, present in both trees");
+        assert_eq!(
+            summary.total(),
+            1,
+            "one logical path, present in both trees"
+        );
         assert_eq!(summary.server_specific, 1);
         assert!(summary.bytes() > 0);
 
@@ -558,7 +586,10 @@ mod tests {
         let again = extract_overrides(&pack, &dest, false).unwrap();
         assert_eq!(again.written, 0);
         assert_eq!(again.skipped, 2);
-        assert_eq!(std::fs::read(dest.join("options.txt")).unwrap(), b"my settings");
+        assert_eq!(
+            std::fs::read(dest.join("options.txt")).unwrap(),
+            b"my settings"
+        );
         // With overwrite, the pack wins and says so.
         let forced = extract_overrides(&pack, &dest, true).unwrap();
         assert_eq!(forced.written, 2);
@@ -568,7 +599,8 @@ mod tests {
     #[test]
     fn malformed_and_hostile_packs_are_refused() {
         // Wrong format version.
-        let bad = r#"{"meta":{"version":2,"index_file":"modrinth.index.json"},"name":"x","files":[]}"#;
+        let bad =
+            r#"{"meta":{"version":2,"index_file":"modrinth.index.json"},"name":"x","files":[]}"#;
         let err = PackIndex::from_json(bad).unwrap_err();
         assert!(err.to_string().contains("format version"), "{err}");
         // Wrong index file name.
@@ -619,7 +651,16 @@ mod tests {
 
     #[test]
     fn path_validation_rejects_the_usual_suspects() {
-        for bad in ["", "..", "../x", "/x", "C:/x", "a/../b", "mods/a<b>.jar", "mods\0"] {
+        for bad in [
+            "",
+            "..",
+            "../x",
+            "/x",
+            "C:/x",
+            "a/../b",
+            "mods/a<b>.jar",
+            "mods\0",
+        ] {
             assert!(validate_rel_path(bad).is_err(), "{bad} must be rejected");
         }
         for ok in ["mods/a.jar", "world/datapacks/x.zip", "config/sub/y.toml"] {

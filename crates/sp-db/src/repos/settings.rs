@@ -78,7 +78,10 @@ impl<'a> Settings<'a> {
     }
 
     /// Bulk read for the settings page (one query instead of N).
-    pub async fn get_many(&self, keys: &[&str]) -> DbResult<serde_json::Map<String, serde_json::Value>> {
+    pub async fn get_many(
+        &self,
+        keys: &[&str],
+    ) -> DbResult<serde_json::Map<String, serde_json::Value>> {
         let mut out = serde_json::Map::new();
         for k in keys {
             if let Some(v) = self.get(k).await? {
@@ -88,7 +91,11 @@ impl<'a> Settings<'a> {
         Ok(out)
     }
 
-    pub async fn get_or(&self, key: &str, default: serde_json::Value) -> DbResult<serde_json::Value> {
+    pub async fn get_or(
+        &self,
+        key: &str,
+        default: serde_json::Value,
+    ) -> DbResult<serde_json::Value> {
         Ok(self.get(key).await?.unwrap_or(default))
     }
 
@@ -111,23 +118,59 @@ mod tests {
 
     async fn db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::tempdir().unwrap();
-        (dir, Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap())
+        (
+            dir,
+            Db::connect(&DbPath::file(dir.path().join("p.db")))
+                .await
+                .unwrap(),
+        )
     }
 
     #[tokio::test]
     async fn roundtrip_and_overwrite() {
         let (_t, db) = db().await;
         assert!(db.settings().get("theme").await.unwrap().is_none());
-        db.settings().set("theme", &json!("midnight")).await.unwrap();
-        assert_eq!(db.settings().get("theme").await.unwrap(), Some(json!("midnight")));
+        db.settings()
+            .set("theme", &json!("midnight"))
+            .await
+            .unwrap();
+        assert_eq!(
+            db.settings().get("theme").await.unwrap(),
+            Some(json!("midnight"))
+        );
         db.settings().set("theme", &json!("emerald")).await.unwrap();
-        assert_eq!(db.settings().get_string("theme").await.unwrap().as_deref(), Some("emerald"));
-        db.settings().set("reduced_motion", &json!(true)).await.unwrap();
-        assert!(db.settings().bool_or("reduced_motion", false).await.unwrap());
+        assert_eq!(
+            db.settings().get_string("theme").await.unwrap().as_deref(),
+            Some("emerald")
+        );
+        db.settings()
+            .set("reduced_motion", &json!(true))
+            .await
+            .unwrap();
+        assert!(db
+            .settings()
+            .bool_or("reduced_motion", false)
+            .await
+            .unwrap());
         assert!(!db.settings().bool_or("missing", false).await.unwrap());
-        db.settings().set("density", &json!("compact")).await.unwrap();
-        assert_eq!(db.settings().get_or("density", json!("comfortable")).await.unwrap(), json!("compact"));
-        assert_eq!(db.settings().get_or("absent", json!("fallback")).await.unwrap(), json!("fallback"));
+        db.settings()
+            .set("density", &json!("compact"))
+            .await
+            .unwrap();
+        assert_eq!(
+            db.settings()
+                .get_or("density", json!("comfortable"))
+                .await
+                .unwrap(),
+            json!("compact")
+        );
+        assert_eq!(
+            db.settings()
+                .get_or("absent", json!("fallback"))
+                .await
+                .unwrap(),
+            json!("fallback")
+        );
         assert!(db.settings().remove("density").await.unwrap());
         assert!(!db.settings().remove("density").await.unwrap());
     }

@@ -35,8 +35,9 @@ pub fn next_fire(expr: &str, from_ms: i64) -> Result<Option<i64>, CoreError> {
 }
 
 fn millis_to_utc(ms: i64) -> chrono::DateTime<chrono::Utc> {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .unwrap_or_else(|_| chrono::DateTime::from_timestamp_millis(0).expect("the epoch is representable"))
+    chrono::DateTime::from_timestamp_millis(ms).unwrap_or_else(|_| {
+        chrono::DateTime::from_timestamp_millis(0).expect("the epoch is representable")
+    })
 }
 
 /// Whether a policy is due at `now_ms`, given the last completed backup.
@@ -139,7 +140,13 @@ impl BackupScheduler {
         db: Arc<Db>,
         dirs: Arc<dyn ServerDirs + Send + Sync>,
     ) -> Self {
-        Self { engine, db, dirs, tick: Duration::from_secs(60), cancel: Cancel::new() }
+        Self {
+            engine,
+            db,
+            dirs,
+            tick: Duration::from_secs(60),
+            cancel: Cancel::new(),
+        }
     }
 
     /// Check for due work once and run it. Exposed for tests, for a
@@ -271,7 +278,11 @@ mod tests {
             .timestamp_millis();
         let next = next_fire("15 3 * * *", now).unwrap().unwrap();
         assert!(next > now, "the next run must be strictly after now");
-        assert_eq!(next - now, 24 * 3600 * 1000, "daily at 03:15 -> 24 h later, not 23:59");
+        assert_eq!(
+            next - now,
+            24 * 3600 * 1000,
+            "daily at 03:15 -> 24 h later, not 23:59"
+        );
         // A fire time exactly at `now` counts as reachable from one minute ago...
         assert_eq!(next_fire("15 3 * * *", now - 60_000).unwrap().unwrap(), now);
         // ...and strictly later than `now` from `now`, so the schedule never re-runs
@@ -282,13 +293,31 @@ mod tests {
     #[test]
     fn due_requires_a_fire_time_inside_the_gap() {
         let t = |s: &str| {
-            chrono::DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&chrono::Utc).timestamp_millis()
+            chrono::DateTime::parse_from_rfc3339(s)
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+                .timestamp_millis()
         };
         // Backed up at 02:00, now 03:20, schedule 03:15 → due.
-        assert!(is_due("15 3 * * *", Some(t("2026-11-13T02:00:00Z")), t("2026-11-13T03:20:00Z")).unwrap());
+        assert!(is_due(
+            "15 3 * * *",
+            Some(t("2026-11-13T02:00:00Z")),
+            t("2026-11-13T03:20:00Z")
+        )
+        .unwrap());
         // Backed up at 03:19 (after the fire time) → not due until tomorrow.
-        assert!(!is_due("15 3 * * *", Some(t("2026-11-13T03:19:00Z")), t("2026-11-13T03:20:00Z")).unwrap());
-        assert!(is_due("15 3 * * *", Some(t("2026-11-13T03:19:00Z")), t("2026-11-14T03:16:00Z")).unwrap());
+        assert!(!is_due(
+            "15 3 * * *",
+            Some(t("2026-11-13T03:19:00Z")),
+            t("2026-11-13T03:20:00Z")
+        )
+        .unwrap());
+        assert!(is_due(
+            "15 3 * * *",
+            Some(t("2026-11-13T03:19:00Z")),
+            t("2026-11-14T03:16:00Z")
+        )
+        .unwrap());
         // Never backed up → due, immediately.
         assert!(is_due("15 3 * * *", None, t("2026-11-13T12:00:00Z")).unwrap());
         // A week of missed fires collapses into one run, not seven: `is_due` says
@@ -301,7 +330,10 @@ mod tests {
     #[test]
     fn a_missed_night_while_the_machine_was_off_still_runs() {
         let t = |s: &str| {
-            chrono::DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&chrono::Utc).timestamp_millis()
+            chrono::DateTime::parse_from_rfc3339(s)
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+                .timestamp_millis()
         };
         // Last backup 4 days ago at 03:15; the panel was down nightly since; boot at 09:00.
         let since = t("2026-11-09T03:15:00Z");
@@ -314,10 +346,16 @@ mod tests {
     #[test]
     fn hourly_and_weekly_expressions_behave() {
         let t = |s: &str| {
-            chrono::DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&chrono::Utc).timestamp_millis()
+            chrono::DateTime::parse_from_rfc3339(s)
+                .unwrap()
+                .with_timezone(&chrono::Utc)
+                .timestamp_millis()
         };
         let now = t("2026-11-13T03:15:00Z");
-        assert_eq!(next_fire("0 * * * *", now).unwrap().unwrap() - now, 45 * 60 * 1000);
+        assert_eq!(
+            next_fire("0 * * * *", now).unwrap().unwrap() - now,
+            45 * 60 * 1000
+        );
         // 2026-11-13 is a Friday; Sunday at 04:00.
         let weekly = next_fire("0 4 * * 0", now).unwrap().unwrap();
         let d = chrono::DateTime::from_timestamp_millis(weekly).unwrap();
@@ -335,7 +373,10 @@ mod tests {
         let mut on = BackupPolicy::default();
         on.enabled = true;
         on.cron = "15 3 * * *".into();
-        let off = BackupPolicy { enabled: false, ..on.clone() };
+        let off = BackupPolicy {
+            enabled: false,
+            ..on.clone()
+        };
         let policies = vec![
             (ServerId::new(1), on.clone()),
             (ServerId::new(2), off),
@@ -345,21 +386,38 @@ mod tests {
         last.insert(ServerId::new(1), t - 24 * 3600 * 1000); // yesterday → due
         last.insert(ServerId::new(3), t - 60_000); // just now → not due
         let ticks = plan_tick(&policies, &last, t).unwrap();
-        assert_eq!(ticks.len(), 2, "the disabled policy is not scheduled at all");
+        assert_eq!(
+            ticks.len(),
+            2,
+            "the disabled policy is not scheduled at all"
+        );
         assert!(ticks[0].due, "server 1 is overdue");
         assert!(!ticks[1].due, "server 3 ran five minutes ago");
         assert_eq!(ticks[0].last_ms, Some(t - 24 * 3600 * 1000));
         assert!(ticks[0].next_ms.unwrap() > t);
         let countdown = ticks[0].human_countdown(t);
-        assert!(countdown.ends_with('h') || countdown.ends_with('m'), "{countdown}");
+        assert!(
+            countdown.ends_with('h') || countdown.ends_with('m'),
+            "{countdown}"
+        );
         assert_eq!(
-            SchedulerTick { server_id: ServerId::new(9), due: true, next_ms: Some(t), last_ms: None }
-                .human_countdown(t),
+            SchedulerTick {
+                server_id: ServerId::new(9),
+                due: true,
+                next_ms: Some(t),
+                last_ms: None
+            }
+            .human_countdown(t),
             "now"
         );
         assert_eq!(
-            SchedulerTick { server_id: ServerId::new(9), due: false, next_ms: None, last_ms: None }
-                .human_countdown(t),
+            SchedulerTick {
+                server_id: ServerId::new(9),
+                due: false,
+                next_ms: None,
+                last_ms: None
+            }
+            .human_countdown(t),
             "no further runs scheduled"
         );
     }
@@ -369,7 +427,10 @@ mod tests {
         for bad in ["", "75 * * * *", "* * * *", "a b c d e", "*/0 * * * *"] {
             let r = is_due(bad, None, 0);
             match r {
-                Ok(v) => assert!(v, "an always-valid expression should not be treated as due: {bad}"),
+                Ok(v) => assert!(
+                    v,
+                    "an always-valid expression should not be treated as due: {bad}"
+                ),
                 Err(e) => assert!(!e.to_string().is_empty(), "{bad} produced an empty error"),
             }
         }
@@ -395,11 +456,17 @@ mod tests {
         let db = Arc::new(Db::in_memory().await.unwrap());
         let engine = Arc::new(BackupEngine::new(
             db.clone(),
-            crate::Destination::Local { root: std::env::temp_dir() },
+            crate::Destination::Local {
+                root: std::env::temp_dir(),
+            },
         ));
         let dirs = Arc::new(MapDirs(BTreeMap::new()));
         let s = BackupScheduler::new(engine, db, dirs);
-        assert!(s.run_once(chrono::Utc::now().timestamp_millis()).await.unwrap().is_empty());
+        assert!(s
+            .run_once(chrono::Utc::now().timestamp_millis())
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     /// A server row is required by `backups.server_id`'s foreign key, so tests create
@@ -451,7 +518,12 @@ mod tests {
 
         let mut dirs = BTreeMap::new();
         dirs.insert(server_id, server_dir.clone());
-        let engine = Arc::new(BackupEngine::new(db.clone(), crate::Destination::Local { root: backups.clone() }));
+        let engine = Arc::new(BackupEngine::new(
+            db.clone(),
+            crate::Destination::Local {
+                root: backups.clone(),
+            },
+        ));
         let scheduler = BackupScheduler::new(engine, db.clone(), Arc::new(MapDirs(dirs)));
 
         let now = chrono::DateTime::parse_from_rfc3339("2026-11-13T03:20:00Z")
@@ -465,8 +537,15 @@ mod tests {
         assert_eq!(rows[0].kind, BackupKind::Scheduled);
         assert_eq!(rows[0].state, sp_core::BackupState::Completed);
         assert_eq!(rows[0].format, policy.format);
-        let on_disk: Vec<_> = std::fs::read_dir(&backups).unwrap().filter_map(|e| e.ok()).collect();
-        assert_eq!(on_disk.len(), 1, "exactly one archive, no .part left behind");
+        let on_disk: Vec<_> = std::fs::read_dir(&backups)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(
+            on_disk.len(),
+            1,
+            "exactly one archive, no .part left behind"
+        );
         assert!(!on_disk[0].path().to_string_lossy().ends_with(".part"));
 
         // The second tick must not duplicate the work.
@@ -475,7 +554,14 @@ mod tests {
         // ...and a day later it must.
         let next_day = now + 24 * 3600 * 1000;
         assert_eq!(scheduler.run_once(next_day).await.unwrap(), vec![server_id]);
-        assert_eq!(db.backups().list_for_server(server_id, 10).await.unwrap().len(), 2);
+        assert_eq!(
+            db.backups()
+                .list_for_server(server_id, 10)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[tokio::test]
@@ -488,11 +574,19 @@ mod tests {
         db.backups().set_policy(server_id, &policy).await.unwrap();
         let engine = Arc::new(BackupEngine::new(
             db.clone(),
-            crate::Destination::Local { root: std::env::temp_dir() },
+            crate::Destination::Local {
+                root: std::env::temp_dir(),
+            },
         ));
-        let scheduler = BackupScheduler::new(engine, db.clone(), Arc::new(MapDirs(BTreeMap::new())));
+        let scheduler =
+            BackupScheduler::new(engine, db.clone(), Arc::new(MapDirs(BTreeMap::new())));
         let now = chrono::Utc::now().timestamp_millis();
         assert!(scheduler.run_once(now).await.unwrap().is_empty());
-        assert!(db.backups().list_for_server(server_id, 10).await.unwrap().is_empty());
+        assert!(db
+            .backups()
+            .list_for_server(server_id, 10)
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

@@ -5,9 +5,7 @@
 //! "available updates" from several screens, and un-cached polling is how a personal
 //! panel gets itself rate-limited into an hour of dead buttons.
 
-use crate::{
-    upstream_err, ModrinthVersion, Notice, Project, ProjectType, SearchHit, Selection,
-};
+use crate::{upstream_err, ModrinthVersion, Notice, Project, ProjectType, SearchHit, Selection};
 use serde_json::json;
 use sp_core::CoreError;
 use sp_net::cache::TtlCache;
@@ -109,16 +107,36 @@ impl SearchQuery {
             groups.push(vec![format!("project_type:{name}")]);
         }
         if !self.categories.is_empty() {
-            groups.push(self.categories.iter().map(|c| format!("categories:{c}")).collect());
+            groups.push(
+                self.categories
+                    .iter()
+                    .map(|c| format!("categories:{c}"))
+                    .collect(),
+            );
         }
         if !self.loaders.is_empty() {
-            groups.push(self.loaders.iter().map(|l| format!("categories:{l}")).collect());
+            groups.push(
+                self.loaders
+                    .iter()
+                    .map(|l| format!("categories:{l}"))
+                    .collect(),
+            );
         }
         if !self.game_versions.is_empty() {
-            groups.push(self.game_versions.iter().map(|v| format!("versions:{v}")).collect());
+            groups.push(
+                self.game_versions
+                    .iter()
+                    .map(|v| format!("versions:{v}"))
+                    .collect(),
+            );
         }
         if !self.licenses.is_empty() {
-            groups.push(self.licenses.iter().map(|l| format!("licenses:{l}")).collect());
+            groups.push(
+                self.licenses
+                    .iter()
+                    .map(|l| format!("licenses:{l}"))
+                    .collect(),
+            );
         }
         if self.server_side_only {
             groups.push(
@@ -224,7 +242,8 @@ impl ModrinthClient {
 
     async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, CoreError> {
         let body = self.get_cached(path).await?;
-        serde_json::from_str(&body).map_err(|e| upstream_err(format!("unexpected shape at {path}: {e}"), 200))
+        serde_json::from_str(&body)
+            .map_err(|e| upstream_err(format!("unexpected shape at {path}: {e}"), 200))
     }
 
     pub async fn search(&self, q: &SearchQuery) -> Result<SearchPage, CoreError> {
@@ -237,7 +256,8 @@ impl ModrinthClient {
     }
 
     pub async fn project(&self, slug_or_id: &str) -> Result<Project, CoreError> {
-        self.get_json(&format!("/project/{}", urlencode(slug_or_id))).await
+        self.get_json(&format!("/project/{}", urlencode(slug_or_id)))
+            .await
     }
 
     /// Versions for a project, narrowed server-side when possible (a project with
@@ -250,10 +270,16 @@ impl ModrinthClient {
         let mut path = format!("/project/{}/version", urlencode(slug_or_id));
         let mut filters: Vec<String> = Vec::new();
         if let Some(mc) = &sel.mc_version {
-            filters.push(format!("game_versions={}", urlencode(&json!([mc]).to_string())));
+            filters.push(format!(
+                "game_versions={}",
+                urlencode(&json!([mc]).to_string())
+            ));
         }
         if !sel.loaders.is_empty() {
-            filters.push(format!("loaders={}", urlencode(&json!(sel.loaders).to_string())));
+            filters.push(format!(
+                "loaders={}",
+                urlencode(&json!(sel.loaders).to_string())
+            ));
         }
         if !filters.is_empty() {
             path.push('?');
@@ -300,7 +326,10 @@ impl ModrinthClient {
             return Ok(Vec::new());
         }
         if !status.is_success() {
-            return Err(upstream_err(text.chars().take(300).collect::<String>(), status.as_u16()));
+            return Err(upstream_err(
+                text.chars().take(300).collect::<String>(),
+                status.as_u16(),
+            ));
         }
         serde_json::from_str(&text).map_err(|e| {
             upstream_err(
@@ -418,14 +447,25 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&facets).unwrap();
         let groups = parsed.as_array().unwrap();
         assert_eq!(groups.len(), 4, "type, categories, loaders, versions");
-        assert!(groups.iter().all(|g| g.is_array()), "each facet group must be an array");
+        assert!(
+            groups.iter().all(|g| g.is_array()),
+            "each facet group must be an array"
+        );
         let flat: Vec<String> = groups
             .iter()
-            .flat_map(|g| g.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()))
+            .flat_map(|g| {
+                g.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|s| s.as_str().unwrap().to_string())
+            })
             .collect();
         assert!(flat.contains(&"project_type:mod".to_string()));
         assert!(flat.contains(&"versions:1.21.4".to_string()));
-        assert!(flat.contains(&"categories:fabric".to_string()), "loaders are categories in this API");
+        assert!(
+            flat.contains(&"categories:fabric".to_string()),
+            "loaders are categories in this API"
+        );
         assert!(flat.contains(&"categories:technology".to_string()));
         // Empty query still produces valid JSON (the API rejects malformed facets).
         let empty = SearchQuery::default();
@@ -439,7 +479,14 @@ mod tests {
             ..Default::default()
         };
         let f: serde_json::Value = serde_json::from_str(&q.facets_json()).unwrap();
-        let group = f.as_array().unwrap().last().unwrap().as_array().unwrap().clone();
+        let group = f
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
         let vals: Vec<&str> = group.iter().map(|s| s.as_str().unwrap()).collect();
         assert_eq!(vals, vec!["server_side:required", "server_side:optional"]);
     }
@@ -453,8 +500,14 @@ mod tests {
         };
         let qs = q.to_query_string();
         assert!(qs.contains("query=a%20b%26c"), "{qs}");
-        assert!(qs.ends_with("limit=100"), "limit must clamp to what the API allows");
-        assert!(qs.contains("facets=%5B%5D"), "the facet json must be url-encoded");
+        assert!(
+            qs.ends_with("limit=100"),
+            "limit must clamp to what the API allows"
+        );
+        assert!(
+            qs.contains("facets=%5B%5D"),
+            "the facet json must be url-encoded"
+        );
         assert!(qs.contains("index=relevance"));
         assert!(qs.contains("offset=0"));
         assert!(!qs.contains(' '), "raw spaces break a query string");
@@ -511,15 +564,25 @@ mod tests {
             ..Default::default()
         };
         let versions = client.versions_of("A1", &sel).await.unwrap();
-        assert_eq!(versions[0].install_file().unwrap().filename, "sodium-fabric-0.6.0.jar");
+        assert_eq!(
+            versions[0].install_file().unwrap().filename,
+            "sodium-fabric-0.6.0.jar"
+        );
 
         assert_eq!(client.notices().await.len(), 1);
-        assert_eq!(client.tags(TagKind::Loader).await.unwrap()[0].name, "Fabric");
+        assert_eq!(
+            client.tags(TagKind::Loader).await.unwrap()[0].name,
+            "Fabric"
+        );
 
         // The second identical search must be served from cache, not from upstream.
         let before = mock.hits();
         let _ = client.search(&SearchQuery::new("sodium")).await.unwrap();
-        assert_eq!(mock.hits(), before, "a cached search must not hit the network");
+        assert_eq!(
+            mock.hits(),
+            before,
+            "a cached search must not hit the network"
+        );
         assert!(client.cache_stats().hits >= 1);
 
         // Invalidating forces a refetch.
@@ -546,7 +609,8 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_json_is_an_upstream_shape_error_not_a_panic() {
-        let routes = std::collections::BTreeMap::from([("/notices".to_string(), "not json".to_string())]);
+        let routes =
+            std::collections::BTreeMap::from([("/notices".to_string(), "not json".to_string())]);
         let mock = MockServer::start(routes).await;
         let client = ModrinthClient::with_base(&mock.base(), Duration::from_secs(1)).unwrap();
         // notices swallow errors by design...
@@ -586,7 +650,9 @@ mod tests {
             let routes = Arc::new(routes);
             let handle = tokio::spawn(async move {
                 loop {
-                    let Ok((mut sock, _)) = listener.accept().await else { return };
+                    let Ok((mut sock, _)) = listener.accept().await else {
+                        return;
+                    };
                     let routes = routes.clone();
                     let hits = hits_bg.clone();
                     tokio::spawn(async move {

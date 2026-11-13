@@ -82,8 +82,8 @@ pub fn is_safe_rel(rel: &str) -> Result<(), CoreError> {
 fn is_reserved_windows_name(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
     const RESERVED: [&str; 22] = [
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
-        "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ];
     RESERVED.contains(&stem.as_str())
 }
@@ -121,12 +121,20 @@ pub struct CountingReader<'a, R: Read> {
 
 impl<'a, R: Read> CountingReader<'a, R> {
     pub fn new(inner: &'a mut R) -> Self {
-        Self { inner, hasher: sp_core::verify::MultiHasher::new(), read: 0 }
+        Self {
+            inner,
+            hasher: sp_core::verify::MultiHasher::new(),
+            read: 0,
+        }
     }
     /// Freeze the digests; returns (bytes, sha256, sha1).
     pub fn finish(self) -> (u64, String, String) {
         let h = self.hasher.finish();
-        (self.read, h.sha256.unwrap_or_default(), h.sha1.unwrap_or_default())
+        (
+            self.read,
+            h.sha256.unwrap_or_default(),
+            h.sha1.unwrap_or_default(),
+        )
     }
 }
 
@@ -171,7 +179,10 @@ pub struct ArchiveSummary {
 
 impl ArchiveSummary {
     pub fn file_count(&self) -> usize {
-        self.entries.iter().filter(|e| e.kind == EntryKind::File).count()
+        self.entries
+            .iter()
+            .filter(|e| e.kind == EntryKind::File)
+            .count()
     }
     pub fn paths(&self) -> Vec<String> {
         self.entries
@@ -215,8 +226,14 @@ fn stored_opts() -> zip::write::SimpleFileOptions {
 /// Writes one archive. Zip needs its file handle back to write the central
 /// directory, so [`FormatWriter::finish`] consumes the writer and returns the size.
 pub enum FormatWriter {
-    Zip { zip: zip::ZipWriter<BufWriter<File>>, path: PathBuf },
-    Tar { tar: tar::Builder<zstd::Encoder<'static, BufWriter<File>>>, path: PathBuf },
+    Zip {
+        zip: zip::ZipWriter<BufWriter<File>>,
+        path: PathBuf,
+    },
+    Tar {
+        tar: tar::Builder<zstd::Encoder<'static, BufWriter<File>>>,
+        path: PathBuf,
+    },
 }
 
 impl FormatWriter {
@@ -226,11 +243,17 @@ impl FormatWriter {
         }
         let file = File::create(path)?;
         match format {
-            BackupFormat::Zip => Ok(Self::Zip { zip: zip::ZipWriter::new(BufWriter::new(file)), path: path.to_path_buf() }),
+            BackupFormat::Zip => Ok(Self::Zip {
+                zip: zip::ZipWriter::new(BufWriter::new(file)),
+                path: path.to_path_buf(),
+            }),
             BackupFormat::TarZstd => {
                 let enc = zstd::Encoder::new(BufWriter::new(file), 3)
                     .map_err(|e| CoreError::other(format!("could not start zstd: {e}")))?;
-                Ok(Self::Tar { tar: tar::Builder::new(enc), path: path.to_path_buf() })
+                Ok(Self::Tar {
+                    tar: tar::Builder::new(enc),
+                    path: path.to_path_buf(),
+                })
             }
         }
     }
@@ -252,7 +275,8 @@ impl FormatWriter {
             Self::Tar { tar, .. } => {
                 let mut h = tar::Header::new_gnu();
                 h.set_entry_type(tar::EntryType::Directory);
-                h.set_path(rel).map_err(|e| CoreError::other(format!("tar path {rel}: {e}")))?;
+                h.set_path(rel)
+                    .map_err(|e| CoreError::other(format!("tar path {rel}: {e}")))?;
                 h.set_size(0);
                 h.set_mode(0o755);
                 h.set_mtime(0);
@@ -289,7 +313,8 @@ impl FormatWriter {
             Self::Tar { tar, .. } => {
                 let mut h = tar::Header::new_gnu();
                 h.set_entry_type(tar::EntryType::Regular);
-                h.set_path(rel).map_err(|e| CoreError::other(format!("tar path {rel}: {e}")))?;
+                h.set_path(rel)
+                    .map_err(|e| CoreError::other(format!("tar path {rel}: {e}")))?;
                 h.set_size(bytes);
                 h.set_mtime((modified_ms / 1000).max(0) as u64);
                 h.set_mode(if executable { 0o755 } else { 0o644 });
@@ -321,7 +346,9 @@ impl FormatWriter {
                     .finish()
                     .map_err(|e| CoreError::other(format!("zip finish: {e}")))?;
                 bw.flush()?;
-                let f = bw.into_inner().map_err(|e| CoreError::other(format!("zip into_inner: {e}")))?;
+                let f = bw
+                    .into_inner()
+                    .map_err(|e| CoreError::other(format!("zip into_inner: {e}")))?;
                 f.sync_all()?;
                 drop(f);
                 Ok(std::fs::metadata(&path)?.len())
@@ -344,7 +371,9 @@ impl FormatWriter {
                     .finish()
                     .map_err(|e| CoreError::other(format!("zstd finish: {e}")))?;
                 bw.flush()?;
-                let f = bw.into_inner().map_err(|e| CoreError::other(format!("zstd into_inner: {e}")))?;
+                let f = bw
+                    .into_inner()
+                    .map_err(|e| CoreError::other(format!("zstd into_inner: {e}")))?;
                 f.sync_all()?;
                 drop(f);
                 Ok(std::fs::metadata(&path)?.len())
@@ -409,11 +438,21 @@ pub fn summarize(path: &Path, format: BackupFormat) -> Result<ArchiveSummary, Co
                 }
                 is_safe_rel(&name)?;
                 if f.is_dir() {
-                    out.entries.push(ArchiveEntry { path: name, bytes: 0, modified_ms: 0, kind: EntryKind::Dir });
+                    out.entries.push(ArchiveEntry {
+                        path: name,
+                        bytes: 0,
+                        modified_ms: 0,
+                        kind: EntryKind::Dir,
+                    });
                     continue;
                 }
                 if f.unix_mode().is_some_and(|m| m & 0o170000 == 0o120000) {
-                    out.entries.push(ArchiveEntry { path: name, bytes: 0, modified_ms: 0, kind: EntryKind::Symlink });
+                    out.entries.push(ArchiveEntry {
+                        path: name,
+                        bytes: 0,
+                        modified_ms: 0,
+                        kind: EntryKind::Symlink,
+                    });
                     continue;
                 }
                 // The copy is the check: reading forces zip to verify the stored
@@ -532,7 +571,10 @@ pub fn read_manifest(path: &Path, format: BackupFormat) -> Result<Manifest, Core
                     return Manifest::from_reader(&mut entry);
                 }
             }
-            Err(CoreError::other(format!("{} has no {MANIFEST_NAME}", path.display())))
+            Err(CoreError::other(format!(
+                "{} has no {MANIFEST_NAME}",
+                path.display()
+            )))
         }
     }
 }
@@ -570,8 +612,9 @@ fn keep(path: &str, only: &[String]) -> bool {
 
 fn budget_left(archive_bytes: u64, used: u64) -> Result<u64, CoreError> {
     let cap = archive_bytes.saturating_mul(BOMB_RATIO).max(BOMB_FLOOR);
-    cap.checked_sub(used)
-        .ok_or_else(|| CoreError::other("archive expands beyond the safety limit; extraction stopped"))
+    cap.checked_sub(used).ok_or_else(|| {
+        CoreError::other("archive expands beyond the safety limit; extraction stopped")
+    })
 }
 
 /// Extract into `dest`, verifying digests where a manifest is available.
@@ -685,7 +728,10 @@ fn write_entry<R: Read>(
         std::fs::create_dir_all(parent)?;
         rep.dirs_created += 1;
     }
-    let want = plan.manifest.and_then(|m| m.entry(name)).map(|e| e.sha256.clone());
+    let want = plan
+        .manifest
+        .and_then(|m| m.entry(name))
+        .map(|e| e.sha256.clone());
     if plan.skip_identical {
         if let Some(want) = &want {
             if out.is_file()
@@ -777,7 +823,11 @@ mod tests {
             "world/datapacks/My Pack-1.0/pack.mcmeta",
             "mods\\a.jar",
         ] {
-            assert!(is_safe_rel(ok).is_ok(), "{ok:?} must be accepted: {:?}", is_safe_rel(ok));
+            assert!(
+                is_safe_rel(ok).is_ok(),
+                "{ok:?} must be accepted: {:?}",
+                is_safe_rel(ok)
+            );
         }
     }
 
@@ -812,14 +862,20 @@ mod tests {
         assert_eq!(f("a.tar.zstd", BackupFormat::Zip), BackupFormat::TarZstd);
         assert_eq!(f("a.tzst", BackupFormat::Zip), BackupFormat::TarZstd);
         assert_eq!(f("backup-2026", BackupFormat::Zip), BackupFormat::Zip);
-        assert_eq!(f("backup-2026", BackupFormat::TarZstd), BackupFormat::TarZstd);
+        assert_eq!(
+            f("backup-2026", BackupFormat::TarZstd),
+            BackupFormat::TarZstd
+        );
     }
 
     #[test]
     fn tmp_names_cannot_collide_with_the_real_file() {
         let out = Path::new("/srv/world/level.dat");
         let tmp = tmp_path(out);
-        assert_eq!(tmp.file_name().unwrap().to_string_lossy(), ".level.dat.spart");
+        assert_eq!(
+            tmp.file_name().unwrap().to_string_lossy(),
+            ".level.dat.spart"
+        );
         assert_eq!(tmp.parent(), out.parent());
     }
 

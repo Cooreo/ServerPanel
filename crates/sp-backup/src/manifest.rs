@@ -85,9 +85,8 @@ impl Manifest {
     }
 
     pub fn from_json_bytes(bytes: &[u8]) -> Result<Self, CoreError> {
-        let m: Manifest = serde_json::from_slice(bytes).map_err(|e| {
-            CoreError::other(format!("backup manifest is unreadable: {e}"))
-        })?;
+        let m: Manifest = serde_json::from_slice(bytes)
+            .map_err(|e| CoreError::other(format!("backup manifest is unreadable: {e}")))?;
         if m.version > MANIFEST_VERSION {
             return Err(CoreError::other(format!(
                 "this backup was written by a newer panel (manifest v{}, this build reads v{})",
@@ -118,10 +117,7 @@ impl Manifest {
             .unwrap_or_else(|| "unknown time".into());
         format!(
             "{} files, {} bytes, {}, taken {}",
-            self.file_count,
-            self.total_bytes,
-            self.format,
-            when
+            self.file_count, self.total_bytes, self.format, when
         )
     }
 
@@ -183,7 +179,11 @@ mod tests {
         m.push(entry("server.properties", 10));
         m.push(entry("world/level.dat", 90));
         m.empty_dirs.push("plugins".into());
-        m.skipped.push(SkippedEntry { path: "mods/link.jar".into(), reason: SkippedKind::Symlink, detail: None });
+        m.skipped.push(SkippedEntry {
+            path: "mods/link.jar".into(),
+            reason: SkippedKind::Symlink,
+            detail: None,
+        });
         m.world_consistent = true;
         let bytes = m.to_json_vec().unwrap();
         let back = Manifest::from_json_bytes(&bytes).unwrap();
@@ -194,7 +194,10 @@ mod tests {
         assert!(back.entry("nope").is_none());
         assert_eq!(back.paths().count(), 2);
         let d = back.describe();
-        assert!(d.contains("2 files") && d.contains("zip") && d.contains("2024"), "{d}");
+        assert!(
+            d.contains("2 files") && d.contains("zip") && d.contains("2024"),
+            "{d}"
+        );
     }
 
     #[test]
@@ -209,24 +212,45 @@ mod tests {
         let mut m = Manifest::new("zip", "s".into(), 1);
         m.push(entry("mods/a.jar", 5));
         m.file_count = 9;
-        assert!(m.validate().unwrap_err().to_string().contains("claims 9 files"), "{}", m.validate().unwrap_err());
+        assert!(
+            m.validate()
+                .unwrap_err()
+                .to_string()
+                .contains("claims 9 files"),
+            "{}",
+            m.validate().unwrap_err()
+        );
 
         let mut m = Manifest::new("zip", "s".into(), 1);
         m.push(entry("../escape", 5));
-        assert!(matches!(m.validate(), Err(CoreError::PathEscape(_))), "{:?}", m.validate());
+        assert!(
+            matches!(m.validate(), Err(CoreError::PathEscape(_))),
+            "{:?}",
+            m.validate()
+        );
 
         let mut m = Manifest::new("zip", "s".into(), 1);
         m.push(entry("mods/a.jar", 5));
         m.entries[0].sha256 = "not-a-hash".into();
-        assert!(m.validate().unwrap_err().to_string().contains("malformed digest"));
+        assert!(m
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("malformed digest"));
 
         let m = Manifest::new("zip", "s".into(), 1);
-        assert!(m.validate().is_ok(), "an empty manifest is a valid empty backup");
+        assert!(
+            m.validate().is_ok(),
+            "an empty manifest is a valid empty backup"
+        );
 
         let mut m = Manifest::new("zip", "s".into(), 1);
         m.push(entry("mods/a.jar", 5));
         m.entries[0].bytes = 0;
-        assert!(m.validate().is_ok(), "per-file 0 bytes is legitimate (an empty file)");
+        assert!(
+            m.validate().is_ok(),
+            "per-file 0 bytes is legitimate (an empty file)"
+        );
         let mut m = Manifest::new("zip", "s".into(), 1);
         m.file_count = 3;
         m.entries = vec![entry("a", 0), entry("b", 0), entry("c", 0)];
@@ -236,7 +260,10 @@ mod tests {
     #[test]
     fn unreadable_json_is_an_error_not_a_default() {
         for bad in ["", "{", "[]", "null", r#"{"version":"one"}"#] {
-            assert!(Manifest::from_json_bytes(bad.as_bytes()).is_err(), "{bad:?}");
+            assert!(
+                Manifest::from_json_bytes(bad.as_bytes()).is_err(),
+                "{bad:?}"
+            );
         }
     }
 }

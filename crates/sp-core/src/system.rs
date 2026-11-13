@@ -112,12 +112,7 @@ pub fn dir_size(path: &Path) -> u64 {
         .filter_map(|e| e.ok())
     {
         if entry.file_type().is_file() {
-            total = total.saturating_add(
-                entry
-                    .metadata()
-                    .map(|m| m.len())
-                    .unwrap_or(0),
-            );
+            total = total.saturating_add(entry.metadata().map(|m| m.len()).unwrap_or(0));
         }
     }
     total
@@ -133,12 +128,18 @@ pub fn glob_matcher(patterns: &[String]) -> Result<Option<GlobSet>, CoreError> {
     for p in patterns {
         for glob in normalise_globs(p) {
             let g = Glob::new(&glob).map_err(|e| {
-                CoreError::validation("exclude_patterns", format!("`{p}` is not a valid pattern: {e}"))
+                CoreError::validation(
+                    "exclude_patterns",
+                    format!("`{p}` is not a valid pattern: {e}"),
+                )
             })?;
             builder.add(g);
         }
     }
-    builder.build().map(Some).map_err(|e| CoreError::other(e.to_string()))
+    builder
+        .build()
+        .map(Some)
+        .map_err(|e| CoreError::other(e.to_string()))
 }
 
 /// A backup exclusion is a *list* of patterns, and users type them in several
@@ -229,10 +230,16 @@ pub fn percent(part: u64, total: u64) -> f64 {
 }
 
 /// Bind a listener for the panel itself, honouring `port_auto_increment`.
-pub fn bind_listener(bind: IpAddr, port: u16, auto_increment: bool) -> Result<(TcpListener, u16), CoreError> {
+pub fn bind_listener(
+    bind: IpAddr,
+    port: u16,
+    auto_increment: bool,
+) -> Result<(TcpListener, u16), CoreError> {
     let mut last_err: Option<std::io::Error> = None;
     for delta in 0..if auto_increment { 20 } else { 1 } {
-        let Some(p) = port.checked_add(delta) else { break };
+        let Some(p) = port.checked_add(delta) else {
+            break;
+        };
         match TcpListener::bind(SocketAddr::new(bind, p)) {
             Ok(l) => return Ok((l, p)),
             Err(e) => last_err = Some(e),
@@ -257,7 +264,10 @@ mod tests {
     fn bound_port_is_not_free() {
         let l = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
         let addr = l.local_addr().unwrap();
-        assert!(!is_port_free(addr), "an open listener must read as a conflict");
+        assert!(
+            !is_port_free(addr),
+            "an open listener must read as a conflict"
+        );
         drop(l);
         assert!(is_port_free(addr), "after drop the port is free again");
     }
@@ -306,9 +316,15 @@ mod tests {
         assert!(is_loopback(&IpAddr::V4(Ipv4Addr::LOCALHOST)));
         assert!(is_loopback(&IpAddr::V6(Ipv6Addr::LOCALHOST)));
         assert!(!is_loopback(&IpAddr::V4(Ipv4Addr::new(192, 168, 0, 1))));
-        assert!(is_private_or_reserved(&IpAddr::V4(Ipv4Addr::new(10, 1, 2, 3))));
-        assert!(is_private_or_reserved(&IpAddr::V4(Ipv4Addr::new(169, 254, 1, 1))));
-        assert!(!is_private_or_reserved(&IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
+        assert!(is_private_or_reserved(&IpAddr::V4(Ipv4Addr::new(
+            10, 1, 2, 3
+        ))));
+        assert!(is_private_or_reserved(&IpAddr::V4(Ipv4Addr::new(
+            169, 254, 1, 1
+        ))));
+        assert!(!is_private_or_reserved(&IpAddr::V4(Ipv4Addr::new(
+            1, 1, 1, 1
+        ))));
     }
 
     #[test]
@@ -337,8 +353,14 @@ mod tests {
         assert!(m.is_match("crash-reports/crash.txt"));
         assert!(!m.is_match("server.properties"));
         assert!(!m.is_match("world/level.dat"));
-        assert!(glob_matcher(&[]).unwrap().is_none(), "no patterns → no matcher");
-        assert!(glob_matcher(&["[".into()]).is_err(), "invalid glob is a validation error");
+        assert!(
+            glob_matcher(&[]).unwrap().is_none(),
+            "no patterns → no matcher"
+        );
+        assert!(
+            glob_matcher(&["[".into()]).is_err(),
+            "invalid glob is a validation error"
+        );
         let dirs = glob_matcher(&["world/".into()]).unwrap().unwrap();
         assert!(dirs.is_match("world/level.dat"));
         assert!(dirs.is_match("world/region/r.0.0.mca"));
@@ -353,7 +375,11 @@ mod tests {
         assert_eq!(format_bytes(1024), "1.0 KiB");
         assert_eq!(format_bytes(1536), "1.5 KiB");
         assert_eq!(format_bytes(3 * 1024 * 1024 * 1024), "3.0 GiB");
-        assert_eq!(format_bytes(123 * 1024 * 1024), "123 MiB", "wide values drop the decimal");
+        assert_eq!(
+            format_bytes(123 * 1024 * 1024),
+            "123 MiB",
+            "wide values drop the decimal"
+        );
         assert_eq!(format_duration(0), "0s");
         assert_eq!(format_duration(59), "59s");
         assert_eq!(format_duration(75), "1m 15s");

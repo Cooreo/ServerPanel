@@ -54,11 +54,13 @@ impl TtlCache {
             }
             Some(_) => {
                 map.remove(key);
-                self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.misses
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 None
             }
             None => {
-                self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.misses
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 None
             }
         }
@@ -83,15 +85,18 @@ impl TtlCache {
         let mut map = self.inner.lock();
         if map.len() >= self.max_entries {
             // Evict the oldest entry; good enough and O(n) on a bounded map.
-            if let Some(oldest) = map
-                .iter()
-                .min_by_key(|(_, e)| e.at)
-                .map(|(k, _)| k.clone())
-            {
+            if let Some(oldest) = map.iter().min_by_key(|(_, e)| e.at).map(|(k, _)| k.clone()) {
                 map.remove(&oldest);
             }
         }
-        map.insert(key, Entry { at: Instant::now(), body: body.into(), status });
+        map.insert(
+            key,
+            Entry {
+                at: Instant::now(),
+                body: body.into(),
+                status,
+            },
+        );
     }
 
     pub fn invalidate_prefix(&self, prefix: &str) -> usize {
@@ -211,7 +216,9 @@ mod tests {
         let c = TtlCache::with_capacity(Duration::from_millis(1), 16);
         c.insert("versions", "[1,2]");
         std::thread::sleep(Duration::from_millis(10));
-        let (body, stale) = c.get_stale_ok("versions", Duration::from_secs(60)).expect("stale hit");
+        let (body, stale) = c
+            .get_stale_ok("versions", Duration::from_secs(60))
+            .expect("stale hit");
         assert!(stale, "past TTL but within max_stale it is served as stale");
         assert_eq!(body, "[1,2]");
         assert!(c.get_stale_ok("versions", Duration::ZERO).is_none());
@@ -243,21 +250,30 @@ mod tests {
     fn rate_limit_headers_are_parsed_case_insensitively() {
         let mut h = reqwest::header::HeaderMap::new();
         h.insert("x-ratelimit-limit", "100".parse().unwrap());
-        h.insert("X-RateLimit-Remaining".parse().unwrap(), "3".parse().unwrap());
+        h.insert(
+            "X-RateLimit-Remaining".parse().unwrap(),
+            "3".parse().unwrap(),
+        );
         h.insert("x-ratelimit-reset", "99999999999".parse().unwrap());
         let rl = RateLimit::from_headers(&h);
         assert_eq!(rl.limit, Some(100));
         assert_eq!(rl.remaining, Some(3));
         assert_eq!(rl.reset_at_epoch, Some(99_999_999_999));
         assert!(!rl.is_exhausted());
-        assert!(rl.retry_in().is_some(), "far-future reset is clamped, not dropped");
+        assert!(
+            rl.retry_in().is_some(),
+            "far-future reset is clamped, not dropped"
+        );
 
         let mut h2 = reqwest::header::HeaderMap::new();
         h2.insert("x-rate-limit-remaining", "0".parse().unwrap());
         let rl2 = RateLimit::from_headers(&h2);
         assert!(rl2.is_exhausted());
         assert_eq!(rl2.retry_in(), None, "no reset header means no advice");
-        assert_eq!(RateLimit::from_headers(&Default::default()), RateLimit::default());
+        assert_eq!(
+            RateLimit::from_headers(&Default::default()),
+            RateLimit::default()
+        );
     }
 
     #[test]

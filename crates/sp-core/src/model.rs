@@ -141,7 +141,10 @@ impl ServerKind {
 
     /// Software that loads mods (and therefore has a `mods/` folder).
     pub fn supports_mods(&self) -> bool {
-        matches!(self, Self::Fabric | Self::Quilt | Self::Forge | Self::NeoForge)
+        matches!(
+            self,
+            Self::Fabric | Self::Quilt | Self::Forge | Self::NeoForge
+        )
     }
 
     /// Which content kinds the Modrinth browser should offer by default.
@@ -150,7 +153,11 @@ impl ServerKind {
             return vec![ContentKind::Plugin];
         }
         if self.supports_mods() {
-            return vec![ContentKind::Mod, ContentKind::Modpack, ContentKind::Datapack];
+            return vec![
+                ContentKind::Mod,
+                ContentKind::Modpack,
+                ContentKind::Datapack,
+            ];
         }
         vec![ContentKind::Plugin, ContentKind::Datapack, ContentKind::Mod]
     }
@@ -169,7 +176,9 @@ impl std::fmt::Display for ServerKind {
 impl std::str::FromStr for ServerKind {
     type Err = crate::CoreError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_name(s).ok_or_else(|| crate::CoreError::validation("kind", format!("unknown server kind '{s}'")))
+        Self::from_str_name(s).ok_or_else(|| {
+            crate::CoreError::validation("kind", format!("unknown server kind '{s}'"))
+        })
     }
 }
 
@@ -286,7 +295,10 @@ impl ServerStatus {
         matches!(self, Self::Running | Self::Saving)
     }
     pub fn is_busy(self) -> bool {
-        matches!(self, Self::Starting | Self::Stopping | Self::Saving | Self::Installing)
+        matches!(
+            self,
+            Self::Starting | Self::Stopping | Self::Saving | Self::Installing
+        )
     }
     /// Whether the UI should show the pulsing "online" indicator.
     pub fn is_online(self) -> bool {
@@ -331,16 +343,28 @@ pub struct RestartPolicy {
 
 impl Default for RestartPolicy {
     fn default() -> Self {
-        Self { mode: RestartMode::OnCrash, max_retries: 3, backoff_secs: 15 }
+        Self {
+            mode: RestartMode::OnCrash,
+            max_retries: 3,
+            backoff_secs: 15,
+        }
     }
 }
 
 impl RestartPolicy {
     pub const fn on_crash(max_retries: u32, backoff_secs: u64) -> Self {
-        Self { mode: RestartMode::OnCrash, max_retries, backoff_secs }
+        Self {
+            mode: RestartMode::OnCrash,
+            max_retries,
+            backoff_secs,
+        }
     }
     pub const fn never() -> Self {
-        Self { mode: RestartMode::Never, max_retries: 0, backoff_secs: 0 }
+        Self {
+            mode: RestartMode::Never,
+            max_retries: 0,
+            backoff_secs: 0,
+        }
     }
     /// Backoff before restart number `consecutive` (1-based).
     pub fn delay_for(&self, consecutive: u32) -> Duration {
@@ -573,13 +597,18 @@ impl Default for LaunchMode {
 impl LaunchMode {
     /// The plain `java -jar server.jar` mode every unmodded server uses.
     pub fn jar(jar: impl Into<String>) -> Self {
-        Self::Jar { jar: jar.into(), args: Vec::new() }
+        Self::Jar {
+            jar: jar.into(),
+            args: Vec::new(),
+        }
     }
 
     /// Program (not JVM) arguments the provider wants appended.
     pub fn program_args(&self) -> &[String] {
         match self {
-            Self::Jar { args, .. } | Self::Classpath { args, .. } | Self::ArgFile { args, .. } => args,
+            Self::Jar { args, .. } | Self::Classpath { args, .. } | Self::ArgFile { args, .. } => {
+                args
+            }
         }
     }
 
@@ -766,9 +795,16 @@ pub enum PropertyGroup {
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
 pub enum PropertyKind {
     Bool,
-    Int { min: i64, max: i64 },
-    String { max_len: usize },
-    Enum { options: Vec<String> },
+    Int {
+        min: i64,
+        max: i64,
+    },
+    String {
+        max_len: usize,
+    },
+    Enum {
+        options: Vec<String>,
+    },
     /// `motd` — rendered with colour-code preview.
     Motd,
     Json,
@@ -1063,11 +1099,7 @@ impl Default for BackupPolicy {
             format: BackupFormat::TarZstd,
             keep_last: 7,
             keep_days: 14,
-            exclude_patterns: vec![
-                "logs/*.gz".into(),
-                "*.tmp".into(),
-                "crash-reports".into(),
-            ],
+            exclude_patterns: vec!["logs/*.gz".into(), "*.tmp".into(), "crash-reports".into()],
             quiesce: true,
             include_worlds: true,
             include_logs: false,
@@ -1175,9 +1207,21 @@ impl Role {
         use Permission::*;
         match self {
             Self::Admin => &[
-                ServerView, ServerCreate, ServerDelete, ServerConfigure, ServerControl, ConsoleSend,
-                FilesRead, FilesWrite, ContentInstall, BackupManage, SchedulerManage, UserManage,
-                PanelSettings, PanelUpdate, AuditRead,
+                ServerView,
+                ServerCreate,
+                ServerDelete,
+                ServerConfigure,
+                ServerControl,
+                ConsoleSend,
+                FilesRead,
+                FilesWrite,
+                ContentInstall,
+                BackupManage,
+                SchedulerManage,
+                UserManage,
+                PanelSettings,
+                PanelUpdate,
+                AuditRead,
             ],
             Self::Moderator => &[
                 ServerView,
@@ -1300,7 +1344,11 @@ pub struct ProgressEvent {
 }
 
 impl ProgressEvent {
-    pub fn new(job_id: impl Into<String>, phase: ProgressPhase, message: impl Into<String>) -> Self {
+    pub fn new(
+        job_id: impl Into<String>,
+        phase: ProgressPhase,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             job_id: job_id.into(),
             server_id: None,
@@ -1356,8 +1404,12 @@ pub enum PanelEvent {
     PlayerHistory(PlayerSample),
     Notification(NotificationEvent),
     /// Tell the UI to invalidate a TanStack Query key.
-    Invalidate { key: Vec<String> },
-    Heartbeat { at_ms: i64 },
+    Invalidate {
+        key: Vec<String>,
+    },
+    Heartbeat {
+        at_ms: i64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1480,7 +1532,10 @@ mod tests {
         let p = RestartPolicy::default();
         assert_eq!(p.mode, RestartMode::OnCrash);
         let json = serde_json::to_string(&p).unwrap();
-        assert_eq!(json, r#"{"mode":"on-crash","max_retries":3,"backoff_secs":15}"#);
+        assert_eq!(
+            json,
+            r#"{"mode":"on-crash","max_retries":3,"backoff_secs":15}"#
+        );
         let back: RestartPolicy = serde_json::from_str(&json).unwrap();
         assert_eq!(back, p);
         // backoff grows linearly, clamps, and never sleeps 0 s
@@ -1488,7 +1543,10 @@ mod tests {
         assert_eq!(p.delay_for(3), Duration::from_secs(45));
         assert_eq!(p.delay_for(99), Duration::from_secs(150));
         assert_eq!(RestartPolicy::never().delay_for(0), Duration::from_secs(1));
-        assert_eq!(serde_json::to_string(&RestartMode::ScheduledOnly).unwrap(), "\"scheduled-only\"");
+        assert_eq!(
+            serde_json::to_string(&RestartMode::ScheduledOnly).unwrap(),
+            "\"scheduled-only\""
+        );
     }
 
     #[test]
@@ -1557,21 +1615,37 @@ mod tests {
             let s = serde_json::to_string(&k).unwrap();
             let de: ServerKind = serde_json::from_str(&s).unwrap();
             assert_eq!(de, k);
-            assert_eq!(k.as_str(), ServerKind::from_str_name(k.as_str()).unwrap().as_str());
+            assert_eq!(
+                k.as_str(),
+                ServerKind::from_str_name(k.as_str()).unwrap().as_str()
+            );
         }
     }
 
     #[test]
     fn kebab_case_enums_match_wire_format() {
-        assert_eq!(serde_json::to_string(&ServerKind::NeoForge).unwrap(), "\"neoforge\"");
-        assert_eq!(serde_json::to_string(&BackupFormat::TarZstd).unwrap(), "\"tar-zstd\"");
-        assert_eq!(serde_json::to_string(&VersionChannel::OldBeta).unwrap(), "\"old-beta\"");
+        assert_eq!(
+            serde_json::to_string(&ServerKind::NeoForge).unwrap(),
+            "\"neoforge\""
+        );
+        assert_eq!(
+            serde_json::to_string(&BackupFormat::TarZstd).unwrap(),
+            "\"tar-zstd\""
+        );
+        assert_eq!(
+            serde_json::to_string(&VersionChannel::OldBeta).unwrap(),
+            "\"old-beta\""
+        );
     }
 
     #[test]
     fn enum_with_multi_variant_display() {
         // guards the `matches!(Self::A | Self::B | Self::C, self)` forms
-        for k in [ServerKind::BungeeCord, ServerKind::Waterfall, ServerKind::Velocity] {
+        for k in [
+            ServerKind::BungeeCord,
+            ServerKind::Waterfall,
+            ServerKind::Velocity,
+        ] {
             assert!(k.is_proxy());
             assert!(k.supports_plugins(), "{k} proxies accept plugins");
             assert!(k.default_content_kinds().contains(&ContentKind::Plugin));

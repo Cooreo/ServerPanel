@@ -185,7 +185,10 @@ mod tests {
         }
         // The slow reader must learn it missed events instead of reading stale ones.
         let first = slow.recv().await;
-        assert!(matches!(first, Err(true)), "expected a lag signal, got {first:?}");
+        assert!(
+            matches!(first, Err(true)),
+            "expected a lag signal, got {first:?}"
+        );
     }
 
     #[tokio::test]

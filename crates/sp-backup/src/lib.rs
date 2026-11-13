@@ -52,15 +52,15 @@ mod schedule;
 mod selector;
 
 pub use archive::{
-    ArchiveEntry, ArchiveSummary, EntryKind, ExtractPlan, ExtractReport, FormatWriter, extract, format_for,
-    read_manifest, summarize,
+    extract, format_for, read_manifest, summarize, ArchiveEntry, ArchiveSummary, EntryKind,
+    ExtractPlan, ExtractReport, FormatWriter,
 };
 pub use engine::{object_key, BackupEngine, CopyOutcome, VerifyReport, LOCAL_DESTINATION};
 pub use manifest::{Manifest, ManifestEntry, SkippedEntry, MANIFEST_NAME};
 pub use schedule::{is_due, next_fire, BackupScheduler, SchedulerTick, ServerDirs};
 pub use selector::{Cancel, SelectionPlan, Selector, SkippedKind};
 
-use sp_core::{Backup, BackupFormat, BackupId, BackupPolicy, BackupKind, ServerId};
+use sp_core::{Backup, BackupFormat, BackupId, BackupKind, BackupPolicy, ServerId};
 use std::path::PathBuf;
 
 /// Where an archive lives. `Local` is a directory on a filesystem the panel can

@@ -360,7 +360,10 @@ mod tests {
                     filename: n.to_string(),
                     primary: *primary,
                     size: *size,
-                    hashes: FileHashes { sha1: Some("aa".into()), sha512: None },
+                    hashes: FileHashes {
+                        sha1: Some("aa".into()),
+                        sha512: None,
+                    },
                 })
                 .collect(),
         }
@@ -368,9 +371,27 @@ mod tests {
 
     #[test]
     fn file_choice_prefers_primary_then_largest_jar() {
-        let v = version(&[("small.jar", false, 100), ("big.jar", false, 500), ("sources.jar", true, 1)], EnvSupport::Required);
-        assert_eq!(v.install_file().unwrap().filename, "sources.jar", "primary wins even when tiny");
-        let v = version(&[("small.jar", false, 100), ("big.jar", false, 500), ("README.md", false, 900)], EnvSupport::Required);
+        let v = version(
+            &[
+                ("small.jar", false, 100),
+                ("big.jar", false, 500),
+                ("sources.jar", true, 1),
+            ],
+            EnvSupport::Required,
+        );
+        assert_eq!(
+            v.install_file().unwrap().filename,
+            "sources.jar",
+            "primary wins even when tiny"
+        );
+        let v = version(
+            &[
+                ("small.jar", false, 100),
+                ("big.jar", false, 500),
+                ("README.md", false, 900),
+            ],
+            EnvSupport::Required,
+        );
         assert_eq!(v.install_file().unwrap().filename, "big.jar");
         let v = version(&[("only.zip", false, 5)], EnvSupport::Required);
         assert_eq!(v.install_file().unwrap().filename, "only.zip");
@@ -383,7 +404,10 @@ mod tests {
         assert!(v.mc_supports("1.21.4"));
         assert!(!v.mc_supports("1.20.1"));
         assert!(v.loader_matches(&["fabric".to_string()]));
-        assert!(v.loader_matches(&["QUILT".to_string()],), "loader compare is case-insensitive");
+        assert!(
+            v.loader_matches(&["QUILT".to_string()],),
+            "loader compare is case-insensitive"
+        );
         assert!(!v.loader_matches(&["forge".to_string()]));
         assert!(v.loader_matches(&[]), "no loader filter matches everything");
     }
@@ -392,7 +416,10 @@ mod tests {
     fn env_support_decides_installability() {
         assert!(EnvSupport::Required.installable_on_server());
         assert!(EnvSupport::Optional.installable_on_server());
-        assert!(!EnvSupport::Unsupported.installable_on_server(), "a client-only mod must not reach a server");
+        assert!(
+            !EnvSupport::Unsupported.installable_on_server(),
+            "a client-only mod must not reach a server"
+        );
     }
 
     #[test]
@@ -406,7 +433,11 @@ mod tests {
         assert_eq!(ProjectType::Plugin.install_dir(), Some("plugins"));
         assert_eq!(ProjectType::Modpack.install_dir(), Some("."));
         assert_eq!(ProjectType::Mod.install_dir(), Some("mods"));
-        assert_eq!(ProjectType::Shader.install_dir(), None, "a shader is not a server file");
+        assert_eq!(
+            ProjectType::Shader.install_dir(),
+            None,
+            "a shader is not a server file"
+        );
         assert_eq!(ProjectType::Datapack.install_dir(), None);
         assert!(ProjectType::Datapack.needs_world());
         assert!(!ProjectType::Mod.needs_world());
@@ -443,25 +474,38 @@ mod tests {
         )
         .unwrap();
         assert_eq!(v.required_envs.server, EnvSupport::Unsupported);
-        assert_eq!(v.dependencies[0].dependency_type, DependencyType::Incompatible);
+        assert_eq!(
+            v.dependencies[0].dependency_type,
+            DependencyType::Incompatible
+        );
         assert_eq!(v.files[0].hashes.sha1.as_deref(), Some("00"));
         assert_eq!(v.files[0].primary, false);
     }
 
     #[test]
     fn notices_and_error_mapping() {
-        let n: Notice = serde_json::from_str(r#"{"id":"1","msg":"read-only mode","severity":"warning"}"#).unwrap();
+        let n: Notice =
+            serde_json::from_str(r#"{"id":"1","msg":"read-only mode","severity":"warning"}"#)
+                .unwrap();
         assert_eq!(n.severity, NoticeSeverity::Warning);
         let e = upstream_err("nope", 429);
         assert_eq!(e.code(), "upstream");
         match e {
-            CoreError::Upstream { service, status, body } => {
+            CoreError::Upstream {
+                service,
+                status,
+                body,
+            } => {
                 assert_eq!(service, "modrinth");
                 assert_eq!(status, 429);
                 assert_eq!(body, "nope");
             }
             other => panic!("{other:?}"),
         }
-        assert_eq!(e.status(), 502, "an upstream failure is a bad-gateway to the client");
+        assert_eq!(
+            e.status(),
+            502,
+            "an upstream failure is a bad-gateway to the client"
+        );
     }
 }
