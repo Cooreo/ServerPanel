@@ -185,7 +185,7 @@ impl ModrinthClient {
     pub fn new(cfg: &ModrinthConfig) -> Result<Self, CoreError> {
         Ok(Self {
             http: cfg.client()?,
-            cache: Arc::new(TtlCache::with_capacity(512, cfg.ttl)),
+            cache: Arc::new(TtlCache::with_capacity(cfg.ttl, 512)),
             ttl: cfg.ttl,
         })
     }
@@ -198,7 +198,7 @@ impl ModrinthClient {
                 .base_url(base)
                 .user_agent(concat!("ServerPanel/", env!("CARGO_PKG_VERSION")))
                 .build_client()?,
-            cache: Arc::new(TtlCache::with_capacity(64, ttl)),
+            cache: Arc::new(TtlCache::with_capacity(ttl, 64)),
             ttl,
         })
     }

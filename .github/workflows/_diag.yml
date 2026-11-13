@@ -27,7 +27,14 @@ jobs:
           key: diag
       - name: rustfmt
         run: |
-          cargo fmt --all
+          # The point of this workflow is the *raw* text: a cargo command that dies
+          # while loading the workspace prints `error: failed to load manifest` with
+          # no file:line, which a `grep '\.rs:'` relay would filter away and report
+          # as "0 errors". So fmt gets its own captured log, and both logs are pasted
+          # verbatim (head -c) in addition to the filtered summary.
+          cargo fmt --all > fmt.log 2>&1
+          echo "fmt exit: $?"
+          cargo fmt --all -- --check >> fmt.log 2>&1
           {
             echo "### rustfmt"
             echo ""
@@ -37,6 +44,10 @@ jobs:
             cargo fmt --all -- --check 2>/dev/null | grep '^Diff in' | sed 's#.*/crates/#crates/#' | sort | uniq -c | sort -rn | head -25
             echo '```'
           } > fmt.md
+          echo "" >> fmt.md
+          echo '```text' >> fmt.md
+          head -c 4000 fmt.log >> fmt.md
+          echo '```' >> fmt.md
           git checkout -- .
       - name: clippy
         run: |
@@ -66,6 +77,12 @@ jobs:
             echo ""
             echo '```text'
             grep -E '\.rs:[0-9]+:[0-9]+: (error|warning)' clippy.log | sed 's#.*/crates/#crates/#' | sort -u | head -180
+            echo '```'
+            echo ""
+            echo "### raw log tails"
+            echo ""
+            echo '```text'
+            head -c 6000 clippy.log
             echo '```'
           } > body.md
           python3 - <<'PY'

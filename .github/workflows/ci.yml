@@ -52,6 +52,24 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
+  # These two checks exist because a workspace or workflow that cannot be *loaded*
+  # produces a failure nobody can read: cargo aborts before printing anything, and a
+  # rejected workflow never starts a job (no log, no check run). Both are cheaper to
+  # run here than to diagnose from a 0-second failure.
+  manifest:
+    name: Manifest & workflow sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --quiet pyyaml
+      - name: Cargo workspace
+        run: python3 tools/dep-check.py .
+      - name: GitHub workflows
+        run: python3 tools/wf-check.py .github/workflows
+
   rustfmt:
     name: Format
     runs-on: ubuntu-latest
