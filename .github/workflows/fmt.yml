@@ -30,13 +30,18 @@ jobs:
           git diff --stat >> "$GITHUB_STEP_SUMMARY"
           git config user.name "serverpanel-bot"
           git config user.email "bot@serverpanel.local"
-          git commit -am "style: cargo fmt --all [skip ci]
+          cat > /tmp/msg <<'MSG'
+          style: cargo fmt --all [skip ci]
 
-Applied by .github/workflows/fmt.yml, which exists because formatting is
-mechanical: a human (or agent) hand-formatting Rust to satisfy a tool the
-authoring environment cannot run is a tax on every change, and `ci.yml`'s
-rustfmt gate should be a fact rather than a fight. The commit is tagged
-[skip ci] so this workflow does not loop; the formatting-only diff is still
-compiled and clippy-checked by the run for the commit it was applied on top of.
-Co-Authored-By: Arena <noreply@arena.ai>"
+          Applied by .github/workflows/fmt.yml, which exists because formatting is
+          mechanical: a human (or agent) hand-formatting Rust to satisfy a tool the
+          authoring environment cannot run is a tax on every change, and ci.yml's
+          rustfmt gate should be a fact rather than a fight. The commit is tagged
+          [skip ci] so this workflow does not loop; the formatting-only diff is
+          still compiled and clippy-checked by the run for the commit it was
+          applied on top of.
+
+          Co-Authored-By: Arena <noreply@arena.ai>
+          MSG
+          git commit -a --file /tmp/msg
           git push origin "HEAD:${{ github.ref_name }}"
