@@ -764,7 +764,7 @@ mod tests {
             "mods/trailing ",
             "mods/bad<name>.jar",
             "mods/bad|pipe",
-            "mods\..\escape",
+            r"mods\..\escape",
             "mods/../evil",
         ] {
             assert!(is_safe_rel(bad).is_err(), "{bad:?} must be refused");

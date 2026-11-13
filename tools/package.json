@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "tree-sitter-wasms": "^0.1.11",
+    "web-tree-sitter": "^0.22.6"
+  }
+}
