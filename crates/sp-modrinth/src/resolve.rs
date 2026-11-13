@@ -554,10 +554,9 @@ pub async fn search_for_server(
     loaders: &[String],
     limit: u8,
 ) -> Result<crate::SearchPage, CoreError> {
-    let mut q = SearchQuery::new(query)
-        .typed(kind)
-        .for_mc(mc_version)
-        .server_side_only(true);
+    let mut q = SearchQuery::new(query).typed(kind).for_mc(mc_version);
+    // `server_side_only` is a plain field on `SearchQuery`, not a builder method.
+    q.server_side_only = true;
     q.limit = Some(limit.min(100));
     for l in loaders {
         q = q.loader(l.clone());
@@ -1305,11 +1304,11 @@ mod tests {
 
     #[test]
     fn search_for_server_builds_the_query() {
-        let q = SearchQuery::new("sodium")
+        let mut q = SearchQuery::new("sodium")
             .typed(ProjectType::Mod)
             .for_mc("1.21.4")
-            .server_side_only(true)
             .loader("fabric");
+        q.server_side_only = true;
         let s = q.to_query_string();
         assert!(s.contains("query=sodium"));
         assert!(s.contains("index=relevance"));

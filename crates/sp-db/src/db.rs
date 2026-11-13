@@ -4,8 +4,9 @@ use crate::error::{DbError, DbResult};
 use crate::migrate;
 use crate::repos;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
-// `Row` is the trait that carries `try_get`; without it the row accessors do not resolve.
-use sqlx::{Row, SqlitePool};
+// `Row` carries `try_get`, `ConnectOptions` carries `log_slow_statements`. Both are
+// traits, so calling them as methods needs the trait in scope.
+use sqlx::{ConnectOptions, Row, SqlitePool};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 

@@ -48,10 +48,19 @@ pub struct ParsedLine {
 /// matters because these run for every single console line.
 macro_rules! pattern {
     ($name:ident, $re:expr) => {
-        static $name: OnceLock<Regex> = OnceLock::new();
         #[inline]
+        // The generated *function* keeps the pattern's SCREAMING_CASE name (it used to
+        // be a `static`, where that is idiomatic), so the lint is silenced here rather
+        // than at all eleven call sites.
+        #[allow(non_snake_case)]
         fn $name() -> &'static Regex {
-            $name.get_or_init(|| {
+            // The `static` lives *inside* the fn. A `static RE_TPS` and an `fn RE_TPS`
+            // share the value namespace, which is what turned all eleven patterns into
+            // "defined multiple times" — and then every `RE_TPS()` call into E0618
+            // ("expected function, found OnceLock<Regex>"). Same process-lifetime
+            // lazy-init, no name clash, and the pattern still reads at its use site.
+            static RE: OnceLock<Regex> = OnceLock::new();
+            RE.get_or_init(|| {
                 Regex::new($re).unwrap_or_else(|e| panic!("invalid pattern {:?}: {e}", $re))
             })
         }

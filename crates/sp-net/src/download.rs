@@ -17,7 +17,9 @@ use sp_core::progress::ProgressReporter;
 use sp_core::verify::{Hashes, MultiHasher};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+// `AsyncReadExt` is not needed any more: the resume path reads the `.part` with
+// `std::io::Read`, and the network stream is consumed through `chunk()`.
+use tokio::io::AsyncWriteExt;
 
 #[derive(Debug, Clone)]
 pub struct DownloadJob {

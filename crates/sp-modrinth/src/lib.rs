@@ -34,7 +34,10 @@ pub mod client;
 pub mod mrpack;
 pub mod resolve;
 
-pub use client::ModrinthClient;
+// `resolve::search_for_server` is public and returns `SearchPage`, so the search types
+// have to be reachable from the crate root — otherwise the public interface names items
+// callers cannot import.
+pub use client::{ModrinthClient, SearchIndex, SearchPage, SearchQuery};
 pub use mrpack::{PackFile, PackIndex};
 pub use resolve::{InstallTarget, Resolution, ResolvedFile, Selection};
 

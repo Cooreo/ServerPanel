@@ -48,10 +48,14 @@ impl TtlCache {
     }
 
     /// Fresh value for `key`, if any.
+    ///
+    /// Only a cached `200` counts as a hit. `insert_status` records 404s and 5xx on
+    /// purpose (so a caller stops re-asking for a project that does not exist), but
+    /// handing that body back through `get` would turn a recorded miss into a success.
     pub fn get(&self, key: &str) -> Option<String> {
         let mut map = self.inner.lock();
         match map.get(key) {
-            Some(e) if e.at.elapsed() < self.ttl => {
+            Some(e) if e.status == 200 && e.at.elapsed() < self.ttl => {
                 self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 Some(e.body.clone())
             }
@@ -75,7 +79,7 @@ impl TtlCache {
         let map = self.inner.lock();
         map.get(key).and_then(|e| {
             let age = e.at.elapsed();
-            (age < max_stale).then(|| (e.body.clone(), age >= self.ttl))
+            (e.status == 200 && age < max_stale).then(|| (e.body.clone(), age >= self.ttl))
         })
     }
 
@@ -257,7 +261,7 @@ mod tests {
             "100".parse::<reqwest::header::HeaderValue>().unwrap(),
         );
         h.insert(
-            "X-RateLimit-Remaining".parse().unwrap(),
+            "X-RateLimit-Remaining".parse::<reqwest::header::HeaderName>().unwrap(),
             "3".parse::<reqwest::header::HeaderValue>().unwrap(),
         );
         h.insert(
@@ -277,7 +281,10 @@ mod tests {
         );
 
         let mut h2 = reqwest::header::HeaderMap::new();
-        h2.insert("x-rate-limit-remaining", "0".parse().unwrap());
+        h2.insert(
+            "x-rate-limit-remaining",
+            "0".parse::<reqwest::header::HeaderValue>().unwrap(),
+        );
         let rl2 = RateLimit::from_headers(&h2);
         assert!(rl2.is_exhausted());
         assert_eq!(rl2.retry_in(), None, "no reset header means no advice");
