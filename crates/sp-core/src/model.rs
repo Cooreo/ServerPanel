@@ -123,23 +123,25 @@ impl ServerKind {
 
     /// Proxy software has no world, no `server.properties`, and no online-mode.
     pub fn is_proxy(&self) -> bool {
-        matches!(Self::BungeeCord | Self::Waterfall | Self::Velocity, self)
+        matches!(self, Self::BungeeCord | Self::Waterfall | Self::Velocity)
     }
 
     /// Software that loads Bukkit-style plugins.
     pub fn supports_plugins(&self) -> bool {
         matches!(
-            Self::Paper | Self::Purpur | Self::Folia | Self::Spigot | Self::CraftBukkit | Self::Vanilla,
-            self
+            self,
+            Self::Paper
+                | Self::Purpur
+                | Self::Folia
+                | Self::Spigot
+                | Self::CraftBukkit
+                | Self::Vanilla
         ) || self.is_proxy()
     }
 
     /// Software that loads mods (and therefore has a `mods/` folder).
     pub fn supports_mods(&self) -> bool {
-        matches!(
-            Self::Fabric | Self::Quilt | Self::Forge | Self::NeoForge,
-            self
-        )
+        matches!(self, Self::Fabric | Self::Quilt | Self::Forge | Self::NeoForge)
     }
 
     /// Which content kinds the Modrinth browser should offer by default.

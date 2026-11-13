@@ -332,7 +332,7 @@ impl PanelConfig {
     /// Load defaults → file → env. Missing file is not an error.
     pub fn load() -> Result<Self, CoreError> {
         let path = Self::config_path();
-        Self::load_from(path.as_deref())
+        Self::load_from(Some(path.as_path()))
     }
 
     /// Path of the config file we would read, honouring `SERVERPANEL_CONFIG`.
@@ -432,8 +432,9 @@ fn merge(dst: &mut serde_json::Value, src: serde_json::Value, at: &str) -> Resul
 fn apply_env_overrides(dst: &mut serde_json::Value, vars: &[(String, String)]) {
     for (key, raw) in vars {
         let Some(rest) = key.strip_prefix(ENV_PREFIX) else { continue };
-        let path: Vec<&str> = rest.split("__").map(|s| s.to_ascii_lowercase()).collect();
-        // SAFETY-free re-borrow pattern: walk/insert into the JSON tree.
+        // Owned segments, because `SERVERPANEL__X__Y` is case-insensitive for the
+        // path but the JSON keys are lowercase, so the walk cannot borrow `rest`.
+        let path: Vec<String> = rest.split("__").map(|s| s.to_ascii_lowercase()).collect();
         let mut node = dst;
         for (i, seg) in path.iter().enumerate() {
             let last = i + 1 == path.len();

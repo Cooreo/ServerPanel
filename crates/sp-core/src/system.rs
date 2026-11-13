@@ -9,7 +9,7 @@ use crate::error::CoreError;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ipnet::Ipv4Net;
 use std::io::ErrorKind;
-use std::net::{IpAddr, SocketAddr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::path::Path;
 
 /// Logical CPUs available to the panel (respects cgroup/affinity limits).
