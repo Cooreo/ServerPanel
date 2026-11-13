@@ -24,6 +24,34 @@ env:
   NET: offline
 
 jobs:
+  # GitHub restricts the job-level `if` context to `github`, `needs`, `vars` and
+  # `inputs` — the `hashFiles()` function is only legal in a *step's* `if`. Using it on
+  # a job makes the entire workflow fail to parse, and the symptom is the worst kind:
+  # the run appears, completes in 0s with zero jobs, zero billed seconds and no log.
+  # So the "does this component exist yet" probes live in one cheap job and the
+  # optional jobs gate on its outputs. Same effect, and it is debuggable.
+  detect:
+    name: Detect optional components
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.probe.outputs.web }}
+      e2e: ${{ steps.probe.outputs.e2e }}
+      docker: ${{ steps.probe.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: probe
+        run: |
+          {
+            if [ -f web/package.json ]; then echo "web=true"; else echo "web=false"; fi
+            if [ -f web/package.json ] && [ -f web/playwright.config.ts ]; then
+              echo "e2e=true"
+            else
+              echo "e2e=false"
+            fi
+            if [ -f Dockerfile ]; then echo "docker=true"; else echo "docker=false"; fi
+          } >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
   rustfmt:
     name: Format
     runs-on: ubuntu-latest
@@ -99,7 +127,8 @@ jobs:
 
   web:
     name: Web UI
-    if: ${{ hashFiles('web/package.json') != '' }}
+    needs: [detect]
+    if: needs.detect.outputs.web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -123,7 +152,8 @@ jobs:
 
   e2e:
     name: E2E (Playwright)
-    if: ${{ hashFiles('web/playwright.config.ts') != '' }}
+    needs: [detect]
+    if: needs.detect.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,7 +178,8 @@ jobs:
 
   docker:
     name: Docker image
-    if: ${{ hashFiles('Dockerfile') != '' }}
+    needs: [detect]
+    if: needs.detect.outputs.docker == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
