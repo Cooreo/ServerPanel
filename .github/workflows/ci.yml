@@ -69,6 +69,11 @@ jobs:
         run: python3 tools/dep-check.py .
       - name: GitHub workflows
         run: python3 tools/wf-check.py .github/workflows
+      # A bad feature name reads as "failed to select a version for reqwest", which
+      # is a resolver message, not a manifest one — and it fails before any crate is
+      # compiled, so no compiler diagnostics exist to read.
+      - name: Dependency features
+        run: python3 tools/feat-check.py --strict
 
   rustfmt:
     name: Format

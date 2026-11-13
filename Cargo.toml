@@ -7,6 +7,7 @@ members = [
     "crates/sp-providers",
     "crates/sp-process",
     "crates/sp-modrinth",
+    "crates/sp-backup",
 ]
 
 [workspace.package]
@@ -27,7 +28,12 @@ tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace", "cors", "compression-br", "compression-gzip", "set-header", "request-id"] }
 hyper-util = { version = "0.1", features = ["tokio", "server"] }
 # reqwest: rustls only (no OpenSSL) so Windows/macOS users need no system TLS.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip", "deflate", "cookies", "charset", "http2", "proxy"] }
+# There is no `proxy` feature — proxy support is unconditional in reqwest, and
+# `windows_proxy` is the only proxy-related flag (system auto-detection). Listing a
+# feature a crate does not have does not warn at the manifest: it fails as
+# "failed to select a version", because an unsatisfiable feature disqualifies every
+# candidate. tools/feat-check.py checks the names against the registry index.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip", "deflate", "cookies", "charset", "http2"] }
 
 # --- serde / validation ---
 serde = { version = "1", features = ["derive"] }
@@ -48,7 +54,7 @@ sha1 = "0.10"
 sha2 = "0.10"
 subtle = "2"
 zeroize = { version = "1", features = ["derive"] }
-totp-rs = { version = "5", features = ["gen"] }
+totp-rs = { version = "5", features = ["gen_secret"] }
 
 # --- archives / hashing ---
 zip = { version = "2", default-features = false, features = ["deflate"] }
