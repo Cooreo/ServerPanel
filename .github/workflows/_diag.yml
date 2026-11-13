@@ -1,7 +1,7 @@
 # TEMPORARY — delete when ci.yml is green. Not a gate; it relays cargo's own output
 # to issue #2, because this sandbox cannot reach
-# results-receiver.actions.githubusercontent.com and `gh run view --log` therefore
-# fails even when a job ran. Pass/fail logic stays in ci.yml.
+# results-receiver.actions.githubusercontent.com and `gh run view --log` fails even
+# after a job ran. Pass/fail logic stays in ci.yml; this only moves text.
 name: diag
 on:
   push:
@@ -26,81 +26,132 @@ jobs:
           key: diag
       - name: rustfmt
         run: |
-          # `run:` is `bash -e`, and every one of these commands is *expected* to
-          # fail on a red tree: the whole job exists to report failures, so none of
-          # them may abort it. (An earlier version died at `cargo fmt -- --check`
-          # returning 1, which is the normal case, and posted no comment at all.)
+          # Every step here expects a non-zero exit on a red tree: the failure *is*
+          # the payload, so `bash -e` must not abort the job on it. An earlier
+          # revision died at `cargo fmt -- --check` returning 1 — the normal case —
+          # and posted nothing.
           set +e
+          cargo fmt --all > fmt.log 2>&1
           echo "fmt fix exit: $?" >> fmt.log
-          cargo fmt --all -- --check >> fmt.log 2>&1
-          echo "fmt check exit: $?" >> fmt.log
+          cargo fmt --all -- --check > fmtcheck.log 2>&1
+          echo "fmt check exit: $?" >> fmtcheck.log
           git checkout -- .
       - name: cargo check
         run: |
           set +e
-          cargo check --workspace --all-targets --message-format short > check.log 2>&1
+          # --keep-going reports every crate instead of stopping at the first: without
+          # it, a failure in sp-core hides the seven crates behind it and each round
+          # trip to CI costs one crate's worth of errors.
+          cargo check --workspace --all-targets --keep-going --message-format short > check.log 2>&1
+          if grep -q "unexpected argument '--keep-going'" check.log; then
+            echo "(--keep-going unsupported by this cargo; re-running without it)" > check.log
+            cargo check --workspace --all-targets --message-format short >> check.log 2>&1
+          fi
           echo "check exit: $?" >> check.log
       - name: clippy
         run: |
           set +e
-          cargo clippy --workspace --all-targets --message-format short \
+          cargo clippy --workspace --all-targets --keep-going --message-format short \
             -- -D warnings -D clippy::pedantic \
                -A clippy::module_name_repetitions -A clippy::missing_errors_doc \
                -A clippy::needless_pass_by_value -A clippy::too_many_lines \
             > clippy.log 2>&1
+          if grep -q "unexpected argument '--keep-going'" clippy.log; then
+            cargo clippy --workspace --all-targets --message-format short \
+              -- -D warnings > clippy.log 2>&1
+          fi
           echo "clippy exit: $?" >> clippy.log
       - name: tidy
         run: |
           set +e
-          # Cargo prints its own "unused workspace dependency" notes for path deps whose
-          # crates are not written yet (sp-server, sp-desktop). They are noise on every
-          # run, they are ANSI-heavy, and they pushed the real failure off the end of a
-          # fixed-size relay. Strip colour and drop that one lint here, once, for all logs.
-          for f in fmt.log check.log clippy.log; do
-            sed -r 's/\x1b\[[0-9;]*m//g; s/\x1b\[[0-9;]*[A-Za-z]//g' "$f" > "$f.clean"
-            grep -v "unused workspace dependency" "$f.clean" | grep -v "^ *[0-9]* *|" | grep -v "^ *|" | grep -v "consider removing the workspace dependency" | grep -v "is set to .warn. by default" | grep -v "^ *-->" > "$f.filt" || true
+          # Cargo colour-codes everything, and it prints "unused workspace
+          # dependency" notes for path deps whose crates are not written yet. Both
+          # push the real diagnostics past a fixed-size relay, so colour is stripped
+          # and that one note is dropped once, for all logs.
+          #
+          # `error` as a substring is also a trap: it matches `thiserror`, and a
+          # relay full of "Downloaded thiserror v2.0.21" is how the first version of
+          # this step reported "0 errors" for a red build. Diagnostics from
+          # `--message-format short` are `path.rs:line:col: error[code]: text`, which
+          # is what the greps below look for.
+          for f in fmt.log fmtcheck.log check.log clippy.log; do
+            sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g' "$f" > "$f.clean"
+            grep -v "unused workspace dependency" "$f.clean" | grep -v "^ *|" | grep -v "consider removing the workspace dependency" > "$f.filt" || true
             mv "$f.filt" "$f.clean"
-            echo "== $f: $(wc -l < "$f.clean") lines"
           done
       - name: relay
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
-          {
-            echo "### \`$(git rev-parse --short HEAD)\` — run ${GITHUB_RUN_ID}"
-            echo ""
-            echo "| step | result |"
-            echo "| --- | --- |"
-            echo "| rustfmt | $(grep -c '^Diff in' fmt.log.clean) diff hunks |"
-            echo "| check | $(grep -cE 'error' check.log.clean) error lines, $(grep -cE 'warning' check.log.clean) warnings |"
-            echo "| clippy | $(grep -cE 'error' clippy.log.clean) error lines, $(grep -cE 'warning' clippy.log.clean) warnings |"
-            echo ""
-            echo "**exits:** $(grep -h 'exit:' fmt.log check.log clippy.log | tr '\n' ' ')"
-            echo ""
-            echo '```text'
-            grep -E 'error' check.log.clean | head -60
-            echo "--- full resolution/conflict text ---"
-            grep -A40 'failed to select\|error\[' check.log.clean | head -120
-            echo '```'
-            echo ""
-            echo '```text'
-            grep -E 'warning' clippy.log.clean | grep -v '^ *$' | head -60
-            echo '```'
-            echo ""
-            echo "<details><summary>raw tails (catches failures with no file:line)</summary>"
-            echo ""
-            echo '```text'
-            tail -c 5500 check.log.clean
-            echo '--- clippy ---'
-            tail -c 3000 clippy.log.clean
-            echo '```'
-            echo ""
-            echo "</details>"
-          } > body.md
-          python3 -c "
-          t = open('body.md').read()
-          if len(t) > 62000:
-              open('body.md','w').write(t[:62000] + '\n\n…truncated\n')
-          "
-          gh issue comment "$DIAG_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file body.md
+          python3 - <<'PY'
+          import re, subprocess, os
+          DIAG = os.environ["DIAG_ISSUE"]
+          sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+
+          def read(name):
+              try:
+                  return open(name, errors="replace").read()
+              except FileNotFoundError:
+                  return ""
+
+          def diag(text):
+              return [l for l in text.splitlines() if re.search(r"\.rs:\d+:\d+: (error|warning)", l)]
+
+          check, clippy = read("check.log.clean"), read("clippy.log.clean")
+          fmt, fmtcheck = read("fmt.log.clean"), read("fmtcheck.log.clean")
+          cerr, cwarn = diag(check), diag(clippy)
+          codes = {}
+          for l in cerr + diag(clippy):
+              for m in re.findall(r"(error|warning)\[([A-Za-z0-9_]+)\]|: (error|warning):", l):
+                  key = m[1] or m[3] or m[2] or "unnamed"
+                  codes[key] = codes.get(key, 0) + 1
+          by_crate = {}
+          for l in cerr:
+              m = re.match(r"(crates/[^/]+)", l)
+              if m:
+                  by_crate[m.group(1)] = by_crate.get(m.group(1), 0) + 1
+          hunks = len(re.findall(r"^Diff in", fmtcheck, re.M))
+          lines = []
+          add = lines.append
+          add(f"### `{sha}` — run {os.environ.get('GITHUB_RUN_ID','')}")
+          add("")
+          add("| step | result |")
+          add("| --- | --- |")
+          add(f"| rustfmt | {hunks} diff hunks |")
+          add(f"| cargo check | {len(cerr)} errors |")
+          add(f"| clippy | {len(diag(clippy))} diagnostics ({len(cwarn)} warnings) |")
+          add("")
+          add(f"**exits:** fmt {fmt.strip().splitlines()[-1] if fmt.strip() else 'n/a'} / {check.strip().splitlines()[-1] if check.strip() else 'n/a'} / {clippy.strip().splitlines()[-1] if clippy.strip() else 'n/a'}")
+          add("")
+          if by_crate:
+              add("errors by crate: " + ", ".join(f"{k}={v}" for k, v in sorted(by_crate.items(), key=lambda kv: -kv[1])))
+              add("")
+          if codes:
+              add("by kind: " + ", ".join(f"`{k}`x{v}" for k, v in sorted(codes.items(), key=lambda kv: -kv[1])))
+              add("")
+          body = ["\n".join(lines)]
+          chunk = ""
+          for l in cerr[:400]:
+              if len(chunk) + len(l) + 1 > 58000:
+                  body.append("```text\n" + chunk + "\n```")
+                  chunk = ""
+              chunk += l + "\n"
+          if chunk:
+              body.append("```text\n" + chunk + "\n```")
+          if len(cerr) > 400:
+              body.append(f"…{len(cerr) - 400} more check errors in the next comments" if False else f"_(showing 400 of {len(cerr)})_")
+          tail = check.strip().splitlines()[-25:]
+          body.append("<details><summary>raw check tail</summary>\n\n```text\n" + "\n".join(tail) + "\n```\n\n</details>")
+          if not cerr:
+              # A build can fail with no file:line at all (manifest, resolver, a
+              # panic in a build script). Without this, that reads as "clean".
+              body.append("### raw logs (no file:line diagnostics found)\n\n```text\n" + "\n".join(check.strip().splitlines()[-60:]) + "\n```\n")
+              body.append("```text\n" + "\n".join(clippy.strip().splitlines()[-40:]) + "\n```\n")
+          for i, part in enumerate(body):
+              part = part if len(part) <= 62000 else part[:62000] + "\n…truncated\n"
+              path = f"body-{i}.md"
+              open(path, "w").write(part)
+              subprocess.run(["gh", "issue", "comment", DIAG, "--repo", os.environ["GITHUB_REPOSITORY"], "--body-file", path], check=False)
+          print(f"posted {len(body)} comment(s); {len(cerr)} errors relayed")
+          PY
