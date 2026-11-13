@@ -31,6 +31,7 @@
 //! | Geyser    | `https://api.github.com/repos/GeyserMC/Geyser/releases`     |
 
 pub mod fabric;
+pub mod install;
 pub mod forge;
 pub mod mojang;
 pub mod paper;

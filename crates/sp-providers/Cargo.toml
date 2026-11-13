@@ -31,3 +31,5 @@ bytes.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+sha1.workspace = true
+hex.workspace = true
