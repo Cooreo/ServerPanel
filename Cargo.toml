@@ -108,7 +108,6 @@ sp-net = { path = "crates/sp-net" }
 sp-providers = { path = "crates/sp-providers" }
 sp-modrinth = { path = "crates/sp-modrinth" }
 sp-backup = { path = "crates/sp-backup" }
-sp-server = { path = "crates/sp-server" }
 
 [profile.release]
 codegen-units = 1
