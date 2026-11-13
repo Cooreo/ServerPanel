@@ -262,7 +262,9 @@ mod tests {
         );
         h.insert(
             "x-ratelimit-reset",
-            "99999999999".parse::<reqwest::header::HeaderValue>().unwrap(),
+            "99999999999"
+                .parse::<reqwest::header::HeaderValue>()
+                .unwrap(),
         );
         let rl = RateLimit::from_headers(&h);
         assert_eq!(rl.limit, Some(100));
