@@ -8,7 +8,7 @@ use sp_core::cron::Cron;
 use sp_core::ids::{ServerId, TaskId};
 use sp_core::model::*;
 use sp_core::CoreError;
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
 
 pub struct Tasks<'a> {
     pub(crate) db: &'a Db,
@@ -35,6 +35,9 @@ pub(crate) fn map(row: &sqlx::sqlite::SqliteRow) -> DbResult<ScheduledTask> {
         enabled: r::boolean(row, "enabled")?,
         only_if_running: r::boolean(row, "only_if_running")?,
         warn_before_secs: r::json_or_default(row, "warn_before_json"),
+        // Derived just above and never stored. The field was in the struct but missing
+        // from this initializer, which is what made `next` look unused.
+        next_run_at_ms: next,
         last_run_at_ms: r::i64_opt(row, "last_run_at_ms")?,
         last_result: r::text_opt(row, "last_result")?,
         fail_count: r::u32(row, "fail_count")?,
@@ -207,12 +210,12 @@ mod tests {
 
     async fn db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::tempdir().unwrap();
-        (
-            dir,
-            Db::connect(&DbPath::file(dir.path().join("p.db")))
-                .await
-                .unwrap(),
-        )
+        // Build the pool *before* moving `dir` into the tuple: tuple elements are evaluated
+        // in order, so `dir.path()` ran on a TempDir that had already been moved out.
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
+        (dir, db)
     }
 
     #[tokio::test]

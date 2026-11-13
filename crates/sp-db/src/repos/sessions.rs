@@ -8,8 +8,9 @@ use crate::db::Db;
 use crate::error::{DbError, DbResult};
 use crate::repos as r;
 use sp_core::ids::UserId;
+use sp_core::model::now_ms;
 use sp_core::CoreError;
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
 
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -160,18 +161,17 @@ impl<'a> Sessions<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::db::{Db, DbPath};
     use sp_core::model::Role;
 
     async fn db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::tempdir().unwrap();
-        (
-            dir,
-            Db::connect(&DbPath::file(dir.path().join("p.db")))
-                .await
-                .unwrap(),
-        )
+        // Build the pool *before* moving `dir` into the tuple: tuple elements are evaluated
+        // in order, so `dir.path()` ran on a TempDir that had already been moved out.
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
+        (dir, db)
     }
 
     #[tokio::test]

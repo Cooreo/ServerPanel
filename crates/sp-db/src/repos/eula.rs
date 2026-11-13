@@ -4,8 +4,8 @@ use crate::db::Db;
 use crate::error::DbResult;
 use crate::repos as r;
 use sp_core::ids::{ServerId, UserId};
-use sp_core::model::EulaAgreement;
-use sqlx::{Row, SqlitePool};
+use sp_core::model::{now_ms, EulaAgreement};
+use sqlx::SqlitePool;
 
 pub struct Eula<'a> {
     pub(crate) db: &'a Db,

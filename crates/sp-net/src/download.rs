@@ -15,6 +15,7 @@ use sp_core::error::CoreError;
 use sp_core::model::ProgressPhase;
 use sp_core::progress::ProgressReporter;
 use sp_core::verify::{Hashes, MultiHasher};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -343,7 +344,7 @@ fn hashes_match(expected: &Hashes, actual: &Hashes) -> bool {
             continue;
         };
         // `normalise_digest` strips `sha256-` prefixes and case.
-        let Ok((_, w)) = sp_core::verify::normalise_digest(w) else {
+        let Some((_, w)) = sp_core::verify::normalise_digest(w) else {
             return false;
         };
         if !sp_core::verify::constant_time_eq(w.as_bytes(), g.as_bytes()) {
@@ -384,7 +385,9 @@ pub async fn download_artifact(
     let label = path
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| url.clone());
+        // `url` is a `&str`, so `.clone()` stays borrowed instead of producing the
+        // `String` the label needs.
+        .unwrap_or_else(|| url.to_string());
     let job = DownloadJob::new(url, path, label)
         .with_sha1(sha1)
         .with_sha256(sha256)
@@ -409,12 +412,20 @@ pub fn cleanup_stale_parts(dir: &Path, max_age: std::time::Duration) -> usize {
         if !name.ends_with(".part") {
             continue;
         }
-        let ok = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .map(|t| t.elapsed().map(|e| e > max_age).unwrap_or(false))
-            .unwrap_or(false);
-        if ok && std::fs::remove_file(entry.path()).is_ok() {
+        // Unpacked instead of chained: `metadata()`, `modified()` and `elapsed()` fail
+        // with three different error types, so `and_then`/`map` across them asks for an
+        // inference that cannot work. Skipping a file we cannot stat is also the right
+        // behaviour — an unreadable mtime is not evidence that the `.part` is fresh.
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        let Ok(mtime) = meta.modified() else {
+            continue;
+        };
+        let Ok(age) = mtime.elapsed() else {
+            continue;
+        };
+        if age > max_age && std::fs::remove_file(entry.path()).is_ok() {
             removed += 1;
         }
     }

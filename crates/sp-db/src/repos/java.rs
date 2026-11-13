@@ -7,8 +7,8 @@ use crate::repos as r;
 use sp_core::ids::JavaId;
 use sp_core::model::{now_ms, JavaRuntime, JavaSource};
 use sp_core::CoreError;
-use sqlx::{Row, SqlitePool};
-use std::path::PathBuf;
+use sqlx::SqlitePool;
+use std::path::{Path, PathBuf};
 
 pub struct Java<'a> {
     pub(crate) db: &'a Db,

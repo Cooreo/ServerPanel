@@ -35,7 +35,8 @@ impl Retry {
     }
     pub const fn from_config(attempts: u32, base_ms: u64) -> Self {
         Self {
-            attempts: attempts.max(1),
+            // `u32::max` is not const on the MSRV (1.80) and `Ord` is not a const trait.
+            attempts: if attempts == 0 { 1 } else { attempts },
             base: Duration::from_millis(base_ms),
             factor: 2.0,
         }
@@ -455,7 +456,10 @@ mod tests {
             .connect_timeout(Duration::from_secs(1))
             .build_client()
             .unwrap();
-        let headers = c.raw().headers();
+        // `reqwest::Client` exposes no header map; what matters is what the built
+        // request carries, so build one and read those headers.
+        let req = c.raw().get("https://example.invalid/").build().unwrap();
+        let headers = req.headers();
         assert_eq!(
             headers.get(USER_AGENT).unwrap().to_str().unwrap(),
             "TestAgent/1.0"

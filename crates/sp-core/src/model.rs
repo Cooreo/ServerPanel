@@ -736,7 +736,7 @@ pub struct EulaAgreement {
     /// SHA-256 of the EULA text we displayed, so the record is meaningful.
     pub text_sha256: String,
     pub source_url: String,
-    pub user_agent: String,
+    pub user_agent: Option<String>,
     pub ip: Option<String>,
 }
 
@@ -894,13 +894,17 @@ impl ContentKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(ts_rs::TS))]
 pub struct InstalledContent {
+    /// `None` for content that did not come from Modrinth — a hand-dropped jar or a Bukkit
+    /// plugin has no project. The columns are nullable for the same reason, so the model
+    /// says so rather than inventing an empty string.
+    /// (`sp-db` writes what it is given.)
     pub id: i64,
     pub server_id: ServerId,
     pub kind: ContentKind,
-    pub project_id: String,
-    pub project_slug: String,
+    pub project_id: Option<String>,
+    pub project_slug: Option<String>,
     pub title: String,
-    pub version_id: String,
+    pub version_id: Option<String>,
     pub version_number: String,
     pub filename: String,
     /// Path relative to the server dir, e.g. `mods/sodium-0.6.jar`.

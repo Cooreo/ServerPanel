@@ -220,12 +220,12 @@ mod tests {
 
     async fn db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::tempdir().unwrap();
-        (
-            dir,
-            Db::connect(&DbPath::file(dir.path().join("p.db")))
-                .await
-                .unwrap(),
-        )
+        // Build the pool *before* moving `dir` into the tuple: tuple elements are evaluated
+        // in order, so `dir.path()` ran on a TempDir that had already been moved out.
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
+        (dir, db)
     }
 
     #[tokio::test]

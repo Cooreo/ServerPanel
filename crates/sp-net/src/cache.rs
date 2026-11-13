@@ -7,6 +7,7 @@
 
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -16,13 +17,15 @@ struct Entry {
     status: u16,
 }
 
+/// Cloning a cache has to share entries and counters, so the interior state is `Arc`d.
+/// Deriving `Clone` over a bare `Mutex` and two atomics was never going to be implemented.
 #[derive(Debug, Clone)]
 pub struct TtlCache {
-    inner: Mutex<HashMap<String, Entry>>,
+    inner: Arc<Mutex<HashMap<String, Entry>>>,
     ttl: Duration,
     max_entries: usize,
-    hits: std::sync::atomic::AtomicU64,
-    misses: std::sync::atomic::AtomicU64,
+    hits: Arc<std::sync::atomic::AtomicU64>,
+    misses: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl TtlCache {
@@ -32,11 +35,11 @@ impl TtlCache {
 
     pub fn with_capacity(ttl: Duration, max_entries: usize) -> Self {
         Self {
-            inner: Mutex::new(HashMap::new()),
+            inner: Arc::new(Mutex::new(HashMap::new())),
             ttl,
             max_entries: max_entries.max(8),
-            hits: std::sync::atomic::AtomicU64::new(0),
-            misses: std::sync::atomic::AtomicU64::new(0),
+            hits: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            misses: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -249,12 +252,18 @@ mod tests {
     #[test]
     fn rate_limit_headers_are_parsed_case_insensitively() {
         let mut h = reqwest::header::HeaderMap::new();
-        h.insert("x-ratelimit-limit", "100".parse().unwrap());
+        h.insert(
+            "x-ratelimit-limit",
+            "100".parse::<reqwest::header::HeaderValue>().unwrap(),
+        );
         h.insert(
             "X-RateLimit-Remaining".parse().unwrap(),
-            "3".parse().unwrap(),
+            "3".parse::<reqwest::header::HeaderValue>().unwrap(),
         );
-        h.insert("x-ratelimit-reset", "99999999999".parse().unwrap());
+        h.insert(
+            "x-ratelimit-reset",
+            "99999999999".parse::<reqwest::header::HeaderValue>().unwrap(),
+        );
         let rl = RateLimit::from_headers(&h);
         assert_eq!(rl.limit, Some(100));
         assert_eq!(rl.remaining, Some(3));

@@ -111,11 +111,14 @@ pub(crate) fn json_or_default<T: serde::de::DeserializeOwned + Default>(
         .unwrap_or_default()
 }
 
-pub(crate) fn to_json<T: serde::Serialize>(v: &T) -> DbResult<String> {
+/// `?Sized` so a `&[T]` can be serialised without the caller copying it into a `Vec`
+/// first: four repos hand slices straight through, and `T: Sized` turned each one into
+/// an "[T] has an unknown size at compile time" error at the call site.
+pub(crate) fn to_json<T: serde::Serialize + ?Sized>(v: &T) -> DbResult<String> {
     Ok(serde_json::to_string(v)?)
 }
 
-pub(crate) fn to_json_pretty<T: serde::Serialize>(v: &T) -> DbResult<String> {
+pub(crate) fn to_json_pretty<T: serde::Serialize + ?Sized>(v: &T) -> DbResult<String> {
     Ok(serde_json::to_string_pretty(v)?)
 }
 

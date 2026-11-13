@@ -3,8 +3,9 @@
 use crate::error::{DbError, DbResult};
 use crate::migrate;
 use crate::repos;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous, SqliteTempStore};
-use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
+// `Row` is the trait that carries `try_get`; without it the row accessors do not resolve.
+use sqlx::{Row, SqlitePool};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -90,7 +91,10 @@ impl Db {
             // NORMAL is durable enough for a panel whose contents are all
             // reconstructible (servers live on disk; the DB is the index).
             .synchronous(SqliteSynchronous::Normal)
-            .temp_store(SqliteTempStore::Memory)
+            // sqlx 0.8 has no `temp_store` builder, and it has to be a connect-time pragma:
+            // a `PRAGMA temp_store` run through the pool in `after_open` would configure the
+            // one connection that happened to run it and leave the rest of the pool on disk.
+            .pragma("temp_store", "2")
             .foreign_keys(true)
             .busy_timeout(Duration::from_secs(10))
             // Slow queries in a panel are a bug, but log them rather than hide them.

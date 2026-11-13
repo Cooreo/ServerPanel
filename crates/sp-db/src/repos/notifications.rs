@@ -131,7 +131,7 @@ impl<'a> Notifications<'a> {
                     "channel": row.try_get::<String, _>("channel").unwrap_or_default(),
                     "title": row.try_get::<String, _>("title").unwrap_or_default(),
                     "body": row.try_get::<String, _>("body").unwrap_or_default(),
-                    "level": row.try_get::<String, _>("level").unwrap_or("info"),
+                    "level": row.try_get::<String, _>("level").unwrap_or_else(|| "info".to_string()),
                     "deliveredAtMs": row.try_get::<Option<i64>, _>("delivered_at_ms").ok().flatten(),
                     "attempts": row.try_get::<i64, _>("attempts").unwrap_or(0),
                     "lastError": row.try_get::<Option<String>, _>("last_error").ok().flatten(),

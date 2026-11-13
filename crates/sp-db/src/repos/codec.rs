@@ -5,7 +5,7 @@
 //! test below asserts every variant of every mapped enum round-trips, so adding a
 //! variant in `sp-core` without extending this table fails CI loudly.
 
-use crate::error::{DbError, DbResult};
+use crate::error::DbResult;
 use sp_core::model::*;
 
 /// Generate `<name>_to_str` / `<name>_from_str` pairs for a closed enum.
@@ -200,18 +200,13 @@ codec!(
     VersionChannel::Release
 );
 
-/// Unknown `enabled` for a queued notification is "pending", not "sent".
-pub(crate) fn update_state_from_str(s: &str) -> &'static str {
-    match s {
-        "up-to-date" | "available" | "downloading" | "staged" | "applied" | "rolled-back"
-        | "error" => s,
-        _ => "unknown",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The codec itself only needs `DbResult`; the tests construct a `DbError::Corrupt`
+    // to check the error text, and used to inherit the name from the module's private
+    // `use` line. Importing it here keeps the non-test build free of an unused import.
+    use crate::error::DbError;
 
     #[test]
     fn server_kind_covers_every_variant() {
@@ -318,13 +313,6 @@ mod tests {
             let json = serde_json::to_string(&a).unwrap();
             assert_eq!(json.trim_matches('"'), task_action_to_str(a), "{a:?}");
         }
-    }
-
-    #[test]
-    fn update_state_is_whitelisted() {
-        assert_eq!(update_state_from_str("available"), "available");
-        assert_eq!(update_state_from_str(""), "unknown");
-        assert_eq!(update_state_from_str("rm -rf"), "unknown");
     }
 
     #[test]

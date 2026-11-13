@@ -172,6 +172,9 @@ impl<'a> Content<'a> {
             sqlx::query("UPDATE server_content SET enabled = ?, updated_at_ms = ? WHERE id = ?")
                 .bind(i64::from(enabled))
                 .bind(now_ms())
+                // The `WHERE id = ?` placeholder had no bind, so this updated the wrong row
+                // or failed outright; the only clue in the build was `unused variable: id`.
+                .bind(id)
                 .execute(self.pool())
                 .await?;
         Ok(())
