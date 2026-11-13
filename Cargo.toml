@@ -7,9 +7,6 @@ members = [
     "crates/sp-providers",
     "crates/sp-process",
     "crates/sp-modrinth",
-    "crates/sp-backup",
-    "crates/sp-server",
-    "crates/sp-desktop",
 ]
 
 [workspace.package]
