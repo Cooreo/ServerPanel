@@ -1,8 +1,7 @@
-# TEMPORARY — delete when ci.yml is green. Not a gate; it publishes cargo's own
-# output to issue #2 because this sandbox cannot reach
-# results-receiver.actions.githubusercontent.com, so `gh run view --log` fails even
-# though the job ran. The workflow that *decides* pass/fail stays in ci.yml; this one
-# only relays text.
+# TEMPORARY — delete when ci.yml is green. Not a gate; it relays cargo's own output
+# to issue #2, because this sandbox cannot reach
+# results-receiver.actions.githubusercontent.com and `gh run view --log` therefore
+# fails even when a job ran. Pass/fail logic stays in ci.yml.
 name: diag
 on:
   push:
@@ -27,37 +26,25 @@ jobs:
           key: diag
       - name: rustfmt
         run: |
-          # The point of this workflow is the *raw* text: a cargo command that dies
-          # while loading the workspace prints `error: failed to load manifest` with
-          # no file:line, which a `grep '\.rs:'` relay would filter away and report
-          # as "0 errors". So fmt gets its own captured log, and both logs are pasted
-          # verbatim (head -c) in addition to the filtered summary.
           cargo fmt --all > fmt.log 2>&1
-          echo "fmt exit: $?"
+          echo "fmt fix exit: $?" >> fmt.log
           cargo fmt --all -- --check >> fmt.log 2>&1
-          {
-            echo "### rustfmt"
-            echo ""
-            echo "files needing formatting: $(cargo fmt --all -- --check 2>/dev/null | grep -c '^Diff in')"
-            echo ""
-            echo '```text'
-            cargo fmt --all -- --check 2>/dev/null | grep '^Diff in' | sed 's#.*/crates/#crates/#' | sort | uniq -c | sort -rn | head -25
-            echo '```'
-          } > fmt.md
-          echo "" >> fmt.md
-          echo '```text' >> fmt.md
-          head -c 4000 fmt.log >> fmt.md
-          echo '```' >> fmt.md
+          echo "fmt check exit: $?" >> fmt.log
           git checkout -- .
+      - name: cargo check
+        run: |
+          set +e
+          cargo check --workspace --all-targets --message-format short > check.log 2>&1
+          echo "check exit: $?" >> check.log
       - name: clippy
         run: |
           set +e
-          cargo clippy --workspace --all-targets --all-features --message-format short \
+          cargo clippy --workspace --all-targets --message-format short \
             -- -D warnings -D clippy::pedantic \
                -A clippy::module_name_repetitions -A clippy::missing_errors_doc \
                -A clippy::needless_pass_by_value -A clippy::too_many_lines \
             > clippy.log 2>&1
-          echo "clippy exited $?" | tee clippy.exit
+          echo "clippy exit: $?" >> clippy.log
       - name: relay
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,32 +52,35 @@ jobs:
           {
             echo "### \`$(git rev-parse --short HEAD)\` — run ${GITHUB_RUN_ID}"
             echo ""
-            cat fmt.md
+            echo "| step | result |"
+            echo "| --- | --- |"
+            echo "| rustfmt | $(grep -c '^Diff in' fmt.log) diff hunks |"
+            echo "| check | $(grep -cE '^crates/.*error' check.log) errors, $(grep -cE '^crates/.*warning' check.log) warnings |"
+            echo "| clippy | $(grep -cE '^crates/.*error' clippy.log) errors, $(grep -cE '^crates/.*warning' clippy.log) warnings |"
             echo ""
-            echo "### clippy — $(grep -cE '\.rs:[0-9]+:[0-9]+: error' clippy.log) errors, $(grep -cE '\.rs:[0-9]+:[0-9]+: warning' clippy.log) warnings"
-            echo ""
-            echo "files by error count:"
+            echo "**exits:** $(grep -h 'exit:' fmt.log check.log clippy.log | tr '\n' ' ')"
             echo ""
             echo '```text'
-            grep -oE '^[^ ]+\.rs' clippy.log | sed 's#.*/crates/#crates/#' | sort | uniq -c | sort -rn | head -25
+            grep -E '^crates/.*error' check.log | head -120
             echo '```'
             echo ""
             echo '```text'
-            grep -E '\.rs:[0-9]+:[0-9]+: (error|warning)' clippy.log | sed 's#.*/crates/#crates/#' | sort -u | head -180
+            grep -E '^crates/.*warning' clippy.log | head -60
             echo '```'
             echo ""
-            echo "### raw log tails"
+            echo "<details><summary>raw tails (catches failures with no file:line)</summary>"
             echo ""
             echo '```text'
-            head -c 6000 clippy.log
+            tail -c 5000 check.log
+            echo '---'
+            tail -c 3000 clippy.log
             echo '```'
+            echo ""
+            echo "</details>"
           } > body.md
-          python3 - <<'PY'
-          text = open('body.md').read()
-          limit = 62000
-          if len(text) > limit:
-              keep = text[:limit]
-              text = keep + "\n\n…truncated, " + str(len(text) - limit) + " chars omitted\n"
-          open('body.md', 'w').write(text)
-          PY
+          python3 -c "
+          t = open('body.md').read()
+          if len(t) > 62000:
+              open('body.md','w').write(t[:62000] + '\n\n…truncated\n')
+          "
           gh issue comment "$DIAG_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file body.md
