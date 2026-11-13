@@ -60,8 +60,8 @@ sp-net        one shared HTTP client: retries, resumable downloads, TTL cache,
 sp-process    the instance supervisor: argv, log ring, console parsing, restart
                 policy, Java discovery + Temurin install, Windows Job Objects
 sp-providers  server-software catalogues + the install executor
-sp-modrinth   mods, plugins, resource packs, modpacks (planned)
-sp-backup     create/restore/verify, retention, scheduling (planned)
+sp-modrinth   mods, plugins, resource packs, modpacks: search, resolution, .mrpack
+sp-backup     zip/tar+zstd archives, verification, restore, retention, scheduling
 sp-server     axum REST + WebSocket console + SSE event stream, rust-embed UI (planned)
 sp-desktop    Tauri shell: tray, autostart, single instance, self-update (planned)
 web/          React + TypeScript + Tailwind SPA, shared with the browser build (planned)
@@ -109,16 +109,20 @@ instead of the network, so CI is deterministic and offline-safe.
 | Shared HTTP client, downloads, cache, rate limits | written |
 | Process supervisor, console log ring, Java runtime manager, Job Objects | written |
 | Catalogues + install executor (10 server types) | written |
-| Mod/plugin/modpack installs, backup engine | next |
+| Mod/plugin/modpack installs, `.mrpack`, backup engine, retention, scheduler | written |
 | HTTP API, SSE, WebSocket console, file editor, RCON | planned |
 | Tauri desktop shell + Windows installer | planned |
 | Web UI (React, themed, animated) | planned |
 | `docs/` (architecture, providers, API, security, packaging) | planned |
 
-Nothing above is a promise about how fast it lands, and nothing marked "written" has
-been compiled yet: the environment this code was authored in has no Rust toolchain and
-no route to install one, so CI is the first real `cargo build`. Expect the green badge
-to arrive after some fixes, not immediately.
+Nothing above is a promise about how fast it lands. CI compiles the workspace on every
+push, and that is the compiler this code was written next to but never run through:
+the first pass found two crate features that do not exist, a swapped argument pair, and
+a workflow expression that made GitHub fail the run before any log existed. Four
+checkers in `tools/` (Rust parse, Cargo wiring, workflow expressions, feature names
+against the crates.io index) run in CI ahead of the expensive jobs so that class of
+mistake costs seconds instead of a mystery. The green badge will arrive after more
+fixes, not immediately.
 
 ## Contributing
 

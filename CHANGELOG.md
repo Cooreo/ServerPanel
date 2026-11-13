@@ -71,6 +71,46 @@ bumps every version string, promotes this file's `Unreleased` section, and tags.
   with an `.old-<ms>` backup, and a `serverpanel-install.json` receipt so a repair
   replays the exact same plan.
 
+### Added — content installs
+
+- `sp-modrinth`: search, project/version metadata, and the install resolver built on
+  top of them. Nothing is cached in the UI: every read goes through a 10-minute TTL
+  cache keyed by URL, and upstream errors keep their service name so a Modrinth
+  outage says "modrinth" rather than "internal error".
+- Version selection that respects what a *server* can load: Minecraft version and
+  loader filtering, `server_side: unsupported` projects skipped with an explanation
+  rather than installed and blamed for a crash, prereleases only on request,
+  `required` dependencies pulled transitively (depth-bounded, cycle-safe) and
+  `optional` ones left out unless asked for, `incompatible` declarations winning
+  over the user's own selection. Each chosen file records `required_by`, so the UI
+  can answer "why is this here".
+- `.mrpack` reading: index validation before any write, base64 digests normalised to
+  hex, `envs` respected (client-only files are not copied into a server),
+  `overrides/` then `server-overrides/` so the server-specific tree wins, existing
+  user-edited files kept unless the caller says overwrite, and a plan diffed against
+  on-disk SHA-1 so a re-run fetches only what changed and re-fetches what is corrupt.
+- Update checks against the files actually installed, via Modrinth's hash lookup with
+  a per-project fallback when that endpoint changes shape.
+
+### Added — backups
+
+- `sp-backup`: zip/deflate and tar+zstd archives, both carrying a
+  `serverpanel-backup.json` manifest (per-file size, mtime, SHA-256) that makes an
+  archive self-describing and a restore reviewable before it happens.
+  `Selector::plan` decides contents first, so the progress total is honest and
+  `max_total_bytes` can refuse before a disk fills; symlinks are reported, never
+  followed; two runs over an unchanged tree produce the same entry order.
+- Create writes `.part` → hash → rename, so an interrupted backup can never be
+  mistaken for a complete one; `verify` re-reads every entry (which forces the CRC
+  check) and cross-checks it against the manifest, catching storage rot that a file
+  digest cannot; restore always takes a `pre-restore` copy first and refuses to run
+  against a live server; retention prunes to `keep_last`/`keep_days` and never drops
+  the pre-restore copy that a restore already used.
+- `Quiesce` is the seam to RCON (`save-off`/`save-all flush`/`save-on`) that licenses
+  `world_consistent`, and the scheduler is stateless — due means "a fire time exists
+  since the last completed backup", so a panel that was off overnight catches up once
+  and cannot double-run.
+
 ### Added — repository plumbing
 
 - `LICENSE` (MIT), this `CHANGELOG.md`, `README.md`.
@@ -86,13 +126,19 @@ bumps every version string, promotes this file's `Unreleased` section, and tags.
 - `.github/dependabot.yml` for cargo, npm and actions; `scripts/release.sh` as the
   only supported way to bump versions and tag.
 
-### Known state
+### Verification status
 
-This tree has never been compiled: the sandbox it was written in has no Rust
-toolchain and no network route to install one, so verification so far is
-parse-level (tree-sitter) plus a Cargo-wiring checker (`fmt`/`clippy`/`test` in CI
-will be the first real pass, and the first compile will need fixes). The crates that
-still have no code — `sp-modrinth` (mod/plugin/modpack installs), `sp-backup`
-(scheduled backups, restore, retention), `sp-server` (axum API, SSE, auth, file
-editor, RCON), `sp-desktop` (Tauri shell, tray, autostart, self-update) and `web/`
-(the UI) — are what stands between this tree and a shippable `v0.1.0`.
+CI compiles the workspace on every push (`manifest` → `rustfmt` → `clippy` → `test`,
+plus an MSRV job), which is the first time this tree has met a Rust compiler: that
+pass found and fixed two non-existent crate features (`reqwest/proxy`,
+`totp-rs/gen`), a swapped argument pair, and a workflow expression that made GitHub
+fail the run before any step produced a log. The sandbox this is written in still has
+no toolchain, so local verification is limited to `tools/rs-check.js` (tree-sitter
+parse), `tools/dep-check.py` (workspace wiring), `tools/wf-check.py` (workflow
+expressions and `needs`) and `tools/feat-check.py` (feature names against the
+crates.io index) — all four run in CI too, ahead of the expensive jobs.
+
+Remaining before `v0.1.0`: `sp-server` (axum API, SSE event stream, auth sessions,
+file editor over `Sandbox`, RCON, job runner), `sp-desktop` (Tauri shell: tray,
+autostart, self-update) and `web/` (the UI). The installers attached to a release are
+what make a ServerPanel release usable on Windows, so the tag waits for those three.
