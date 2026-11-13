@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Parse-only Rust checker (no cargo in this sandbox).
- * usage: node rs-check.js [path]   path = file, dir, or repo root
+ * usage: node rs-check.js [path...]   file, dir, or repo root; several are allowed
  * Reports syntax errors via tree-sitter. Cannot see missing files/deps/types.
  */
 const fs = require('fs');
@@ -17,7 +17,10 @@ function req(name) {
 }
 const Parser = req('web-tree-sitter');
 
-const root = process.argv[2] || '.';
+// One or more roots (files or directories); bare invocation scans the repo. Extra
+// arguments used to be ignored silently, so "check these four files" reported on one.
+const roots = process.argv.slice(2);
+if (roots.length === 0) roots.push('.');
 function collect(p) {
   const st = fs.statSync(p);
   if (st.isFile()) return p.endsWith('.rs') ? [p] : [];
@@ -26,7 +29,8 @@ function collect(p) {
     return collect(path.join(p, d.name));
   }).sort();
 }
-const files = collect(path.resolve(root)).filter((f) => f.endsWith('.rs'));
+const files = [...new Set(roots.flatMap((r) => collect(path.resolve(r))))]
+  .filter((f) => f.endsWith('.rs'));
 if (!files.length) { console.log('no .rs files found'); process.exit(1); }
 
 (async () => {
@@ -51,7 +55,8 @@ if (!files.length) { console.log('no .rs files found'); process.exit(1); }
       for (const c of n.children) if (c) walk(c);
     };
     walk(tree.rootNode);
-    const rel = path.relative(path.resolve(root), f) || path.basename(f);
+    // Relative to the current directory, whichever roots we were given.
+    const rel = path.relative(path.resolve('.'), f) || path.basename(f);
     if (errs.length) {
       bad++;
       console.log(`\x1b[31m✗ ${rel}\x1b[0m`);
