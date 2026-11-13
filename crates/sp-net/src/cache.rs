@@ -261,7 +261,9 @@ mod tests {
             "100".parse::<reqwest::header::HeaderValue>().unwrap(),
         );
         h.insert(
-            "X-RateLimit-Remaining".parse::<reqwest::header::HeaderName>().unwrap(),
+            "X-RateLimit-Remaining"
+                .parse::<reqwest::header::HeaderName>()
+                .unwrap(),
             "3".parse::<reqwest::header::HeaderValue>().unwrap(),
         );
         h.insert(
