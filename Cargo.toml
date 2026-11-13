@@ -1,0 +1,122 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sp-core",
+    "crates/sp-db",
+    "crates/sp-net",
+    "crates/sp-process",
+    "crates/sp-providers",
+    "crates/sp-modrinth",
+    "crates/sp-backup",
+    "crates/sp-server",
+    "crates/sp-desktop",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+authors = ["ServerPanel Contributors"]
+license = "MIT"
+repository = "https://github.com/Cooreo/ServerPanel"
+homepage = "https://github.com/Cooreo/ServerPanel"
+publish = false
+
+[workspace.dependencies]
+# --- async runtime / web ---
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "compression-br", "compression-gzip", "set-header", "request-id"] }
+hyper-util = { version = "0.1", features = ["tokio", "server"] }
+# reqwest: rustls only (no OpenSSL) so Windows/macOS users need no system TLS.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip", "deflate", "cookies", "charset", "http2", "proxy"] }
+
+# --- serde / validation ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+thiserror = "2"
+anyhow = "1"
+
+# --- persistence ---
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+
+# --- security ---
+argon2 = { version = "0.5", features = ["std"] }
+rand = "0.8"
+base64 = "0.22"
+sha1 = "0.10"
+sha2 = "0.10"
+subtle = "2"
+zeroize = { version = "1", features = ["derive"] }
+totp-rs = { version = "5", features = ["gen"] }
+
+# --- archives / hashing ---
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1"
+zstd = "0.13"
+
+# --- infra ---
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+tracing-appender = "0.2"
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+# directories intentionally unused: see crates/sp-core/src/paths.rs
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+notify = "7"
+walkdir = "2"
+globset = "0.4"
+parking_lot = "0.12"
+dashmap = "6"
+futures = "0.3"
+async-trait = "0.1"
+bytes = "1"
+tokio-util = { version = "0.7", features = ["io", "compat"] }
+pin-project-lite = "0.2"
+mime_guess = "2"
+rust-embed = { version = "8", features = ["mime-guess", "compression"] }
+semver = { version = "1", features = ["serde"] }
+url = { version = "2", features = ["serde"] }
+urlencoding = "2"
+regex = "1"
+ipnet = { version = "2", features = ["serde"] }
+http = "1"
+mime = "0.3"
+byteorder = "1"
+crc32fast = "1"
+hex = "0.4"
+dotenvy = "0.15"
+log = "0.4"
+clap = { version = "4", features = ["derive"] }
+open = "5"
+
+# --- codegen (opt-in so the shipped binary never depends on them) ---
+ts-rs = { version = "10", features = ["serde-compat", "chrono-impl", "uuid-impl"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+
+# --- workspace members ---
+sp-core = { path = "crates/sp-core" }
+sp-db = { path = "crates/sp-db" }
+sp-process = { path = "crates/sp-process" }
+sp-net = { path = "crates/sp-net" }
+sp-providers = { path = "crates/sp-providers" }
+sp-modrinth = { path = "crates/sp-modrinth" }
+sp-backup = { path = "crates/sp-backup" }
+sp-server = { path = "crates/sp-server" }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

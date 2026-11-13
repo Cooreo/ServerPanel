@@ -1,0 +1,83 @@
+# ServerPanel configuration
+#
+# Location (Windows): %APPDATA%\ServerPanel\config.toml
+# Location (Linux):   ~/.config/serverpanel/config.toml   (or $SERVERPANEL_CONFIG_DIR)
+# Location (macOS):   ~/Library/Preferences/ServerPanel/config.toml
+#
+# Every key is optional — this file only needs the lines you change.
+# Any key can also be set via environment variable by uppercasing the path and
+# joining sections with a double underscore, e.g.
+#   SERVERPANEL__PANEL__PORT=9000
+#   SERVERPANEL__AUTH__CSRF=false
+# Layering: built-in defaults < this file < environment.
+
+# [panel]
+# bind = "127.0.0.1"        # LAN access is an explicit opt-in; see docs/security.md
+# port = 8100
+# port_auto_increment = true # try 8101, 8102… if the port is taken
+# open_at_startup = true
+# base_path = "/"
+# trust_proxy = false        # only enable behind your own reverse proxy
+# max_body_bytes = 536870912 # upload ceiling (512 MiB)
+# shutdown_all_timeout_secs = 180
+
+# [data]
+# root = "D:/ServerPanelData"  # overrides %APPDATA%/ServerPanel
+
+# [log]
+# filter = "info,axum=warn,tower_http=warn,sqlx=warn,reqwest=warn"
+# json = false
+# file = true
+# max_days = 14
+
+# [auth]
+# session_ttl_hours = 336
+# cookie_name = "sp_session"
+# cookie_same_site = "lax"   # strict | lax | none ("none" requires HTTPS)
+# csrf = true
+# max_failed_logins = 8
+# lockout_minutes = 15
+# totp_issuer = "ServerPanel"
+
+# [downloads]
+# max_concurrency = 4
+# retry_attempts = 4
+# retry_base_ms = 500
+# resume = true
+# require_hashes_when_available = true
+# timeout_secs = 600
+# api_cache_minutes = 15
+
+# [servers]
+# auto_start_on_boot = true
+# stagger_starts = true
+# max_concurrent_starts = 3
+# shutdown_timeout_secs = 60
+# kill_process_group = true
+# allowed_port_min = 1024
+# allowed_port_max = 65535
+# prefer_ipv4 = true
+
+# [backups]
+# default_format = "tar-zstd"      # or "zip"
+# default_keep_last = 7
+# default_keep_days = 14
+# zstd_level = 10
+# stop_for_consistency = false
+
+# [updates]
+# enabled = true
+# repo = "Cooreo/ServerPanel"
+# channel = "stable"              # stable | beta | nightly
+# check_interval_hours = 12
+# auto_download = false
+
+# [network]
+# upnp_enabled = false
+# upnp_lease_days = 0
+# public_ip_service = "https://api.ipify.org"
+# windows_firewall_rule = true
+
+# [network.tunnel]
+# enabled = false
+# auto_update = false
