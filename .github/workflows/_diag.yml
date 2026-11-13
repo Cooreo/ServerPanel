@@ -1,0 +1,79 @@
+# TEMPORARY — delete when ci.yml is green. Not a gate; it publishes cargo's own
+# output to issue #2 because this sandbox cannot reach
+# results-receiver.actions.githubusercontent.com, so `gh run view --log` fails even
+# though the job ran. The workflow that *decides* pass/fail stays in ci.yml; this one
+# only relays text.
+name: diag
+on:
+  push:
+    branches: ["arena/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+env:
+  DIAG_ISSUE: "2"
+jobs:
+  diag:
+    name: Relay cargo output
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: diag
+      - name: rustfmt
+        run: |
+          cargo fmt --all
+          {
+            echo "### rustfmt"
+            echo ""
+            echo "files needing formatting: $(cargo fmt --all -- --check 2>/dev/null | grep -c '^Diff in')"
+            echo ""
+            echo '```text'
+            cargo fmt --all -- --check 2>/dev/null | grep '^Diff in' | sed 's#.*/crates/#crates/#' | sort | uniq -c | sort -rn | head -25
+            echo '```'
+          } > fmt.md
+          git checkout -- .
+      - name: clippy
+        run: |
+          set +e
+          cargo clippy --workspace --all-targets --all-features --message-format short \
+            -- -D warnings -D clippy::pedantic \
+               -A clippy::module_name_repetitions -A clippy::missing_errors_doc \
+               -A clippy::needless_pass_by_value -A clippy::too_many_lines \
+            > clippy.log 2>&1
+          echo "clippy exited $?" | tee clippy.exit
+      - name: relay
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "### \`$(git rev-parse --short HEAD)\` — run ${GITHUB_RUN_ID}"
+            echo ""
+            cat fmt.md
+            echo ""
+            echo "### clippy — $(grep -cE '\.rs:[0-9]+:[0-9]+: error' clippy.log) errors, $(grep -cE '\.rs:[0-9]+:[0-9]+: warning' clippy.log) warnings"
+            echo ""
+            echo "files by error count:"
+            echo ""
+            echo '```text'
+            grep -oE '^[^ ]+\.rs' clippy.log | sed 's#.*/crates/#crates/#' | sort | uniq -c | sort -rn | head -25
+            echo '```'
+            echo ""
+            echo '```text'
+            grep -E '\.rs:[0-9]+:[0-9]+: (error|warning)' clippy.log | sed 's#.*/crates/#crates/#' | sort -u | head -180
+            echo '```'
+          } > body.md
+          python3 - <<'PY'
+          text = open('body.md').read()
+          limit = 62000
+          if len(text) > limit:
+              keep = text[:limit]
+              text = keep + "\n\n…truncated, " + str(len(text) - limit) + " chars omitted\n"
+          open('body.md', 'w').write(text)
+          PY
+          gh issue comment "$DIAG_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file body.md
