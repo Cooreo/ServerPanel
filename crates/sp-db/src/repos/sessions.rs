@@ -8,8 +8,9 @@ use crate::db::Db;
 use crate::error::{DbError, DbResult};
 use crate::repos as r;
 use sp_core::ids::UserId;
+use sp_core::model::now_ms;
 use sp_core::CoreError;
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
 
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -92,26 +93,34 @@ impl<'a> Sessions<'a> {
 
     /// Sliding expiry, throttled by the caller (see `auth::SessionStore`).
     pub async fn touch(&self, token_hash: &str, new_expiry_ms: i64) -> DbResult<()> {
-        let _ = sqlx::query("UPDATE sessions SET last_seen_ms = ?, expires_at_ms = ? WHERE token_hash = ?")
-            .bind(now_ms())
-            .bind(new_expiry_ms)
-            .bind(token_hash)
-            .execute(self.pool())
-            .await?;
+        let _ = sqlx::query(
+            "UPDATE sessions SET last_seen_ms = ?, expires_at_ms = ? WHERE token_hash = ?",
+        )
+        .bind(now_ms())
+        .bind(new_expiry_ms)
+        .bind(token_hash)
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 
     pub async fn revoke(&self, token_hash: &str) -> DbResult<()> {
-        let _ = sqlx::query("UPDATE sessions SET revoked_at_ms = ? WHERE token_hash = ? AND revoked_at_ms IS NULL")
-            .bind(now_ms())
-            .bind(token_hash)
-            .execute(self.pool())
-            .await?;
+        let _ = sqlx::query(
+            "UPDATE sessions SET revoked_at_ms = ? WHERE token_hash = ? AND revoked_at_ms IS NULL",
+        )
+        .bind(now_ms())
+        .bind(token_hash)
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 
     /// Used by "log out everywhere" and by password changes / role revocation.
-    pub async fn revoke_all_for_user(&self, user_id: UserId, except_token: Option<&str>) -> DbResult<u64> {
+    pub async fn revoke_all_for_user(
+        &self,
+        user_id: UserId,
+        except_token: Option<&str>,
+    ) -> DbResult<u64> {
         let sql = match except_token {
             Some(_) => "UPDATE sessions SET revoked_at_ms = ? WHERE user_id = ? AND revoked_at_ms IS NULL AND token_hash <> ?",
             None => "UPDATE sessions SET revoked_at_ms = ? WHERE user_id = ? AND revoked_at_ms IS NULL",
@@ -138,30 +147,49 @@ impl<'a> Sessions<'a> {
 
     /// Delete anything expired or revoked; returns rows removed.
     pub async fn purge_expired(&self) -> DbResult<u64> {
-        Ok(sqlx::query("DELETE FROM sessions WHERE expires_at_ms < ? OR revoked_at_ms IS NOT NULL")
+        Ok(
+            sqlx::query(
+                "DELETE FROM sessions WHERE expires_at_ms < ? OR revoked_at_ms IS NOT NULL",
+            )
             .bind(now_ms())
             .execute(self.pool())
             .await?
-            .rows_affected())
+            .rows_affected(),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::db::{Db, DbPath};
     use sp_core::model::Role;
 
     async fn db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::tempdir().unwrap();
-        (dir, Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap())
+        // Build the pool *before* moving `dir` into the tuple: tuple elements are evaluated
+        // in order, so `dir.path()` ran on a TempDir that had already been moved out.
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
+        (dir, db)
     }
 
     #[tokio::test]
     async fn lifecycle() {
         let (_t, db) = db().await;
         let u = db.users().create("a", "h", Role::Admin).await.unwrap();
-        let s = db.sessions().create(u.id, "hash1", "csrf1", 3_600_000, Some("127.0.0.1"), Some("Mozilla")).await.unwrap();
+        let s = db
+            .sessions()
+            .create(
+                u.id,
+                "hash1",
+                "csrf1",
+                3_600_000,
+                Some("127.0.0.1"),
+                Some("Mozilla"),
+            )
+            .await
+            .unwrap();
         assert_eq!(s.user_id, u.id);
         assert_eq!(s.csrf_token, "csrf1");
         assert_eq!(s.ip.as_deref(), Some("127.0.0.1"));
@@ -171,14 +199,20 @@ mod tests {
         assert!(db.sessions().get_by_token("nope").await.unwrap().is_none());
 
         db.sessions().revoke("hash1").await.unwrap();
-        assert!(db.sessions().get_by_token("hash1").await.unwrap().is_none(), "revoked sessions must stop working");
+        assert!(
+            db.sessions().get_by_token("hash1").await.unwrap().is_none(),
+            "revoked sessions must stop working"
+        );
     }
 
     #[tokio::test]
     async fn expiry_is_enforced_in_sql() {
         let (_t, db) = db().await;
         let u = db.users().create("b", "h", Role::Viewer).await.unwrap();
-        db.sessions().create(u.id, "old", "c", -1, None, None).await.unwrap();
+        db.sessions()
+            .create(u.id, "old", "c", -1, None, None)
+            .await
+            .unwrap();
         assert!(db.sessions().get_by_token("old").await.unwrap().is_none());
         assert!(db.sessions().purge_expired().await.unwrap() >= 1);
         assert!(db.sessions().list_for_user(u.id).await.unwrap().is_empty());
@@ -189,14 +223,27 @@ mod tests {
         let (_t, db) = db().await;
         let u = db.users().create("c", "h", Role::Admin).await.unwrap();
         for i in 0..3 {
-            db.sessions().create(u.id, &format!("h{i}"), "c", 3_600_000, None, None).await.unwrap();
+            db.sessions()
+                .create(u.id, &format!("h{i}"), "c", 3_600_000, None, None)
+                .await
+                .unwrap();
         }
         assert_eq!(db.sessions().list_for_user(u.id).await.unwrap().len(), 3);
-        let killed = db.sessions().revoke_all_for_user(u.id, Some("h2")).await.unwrap();
+        let killed = db
+            .sessions()
+            .revoke_all_for_user(u.id, Some("h2"))
+            .await
+            .unwrap();
         assert_eq!(killed, 2);
         assert!(db.sessions().get_by_token("h0").await.unwrap().is_none());
-        assert!(db.sessions().get_by_token("h2").await.unwrap().is_some(), "the caller's session survives");
-        assert_eq!(db.sessions().revoke_all_for_user(u.id, None).await.unwrap(), 1);
+        assert!(
+            db.sessions().get_by_token("h2").await.unwrap().is_some(),
+            "the caller's session survives"
+        );
+        assert_eq!(
+            db.sessions().revoke_all_for_user(u.id, None).await.unwrap(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -204,7 +251,10 @@ mod tests {
         let (_t, db) = db().await;
         let admin = db.users().create("x", "h", Role::Admin).await.unwrap();
         let victim = db.users().create("y", "h", Role::Viewer).await.unwrap();
-        db.sessions().create(victim.id, "hy", "c", 3_600_000, None, None).await.unwrap();
+        db.sessions()
+            .create(victim.id, "hy", "c", 3_600_000, None, None)
+            .await
+            .unwrap();
         db.users().delete(victim.id).await.unwrap();
         assert!(db.sessions().get_by_token("hy").await.unwrap().is_none());
         assert!(db.users().get(admin.id).await.unwrap().is_some());

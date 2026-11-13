@@ -35,7 +35,12 @@ pub struct LaunchPlan {
 
 impl LaunchPlan {
     /// Compose `java <flags> -jar server.jar [args]` from a server's config.
-    pub fn build(server_id: ServerId, kind: ServerKind, cfg: &ServerRuntimeConfig, java: &Path) -> Self {
+    pub fn build(
+        server_id: ServerId,
+        kind: ServerKind,
+        cfg: &ServerRuntimeConfig,
+        java: &Path,
+    ) -> Self {
         let mut args: Vec<String> = Vec::with_capacity(cfg.jvm_flags.len() + 8);
         args.extend(sp_core::flags::heap_flags(cfg.memory_mb, cfg.tune_heap));
         if cfg.prefer_ipv4 {
@@ -64,7 +69,11 @@ impl LaunchPlan {
                 args.push("-jar".to_string());
                 args.push(jar.clone());
             }
-            LaunchMode::Classpath { entries, main_class, .. } => {
+            LaunchMode::Classpath {
+                entries,
+                main_class,
+                ..
+            } => {
                 args.push("-cp".to_string());
                 args.push(entries.join(LaunchMode::classpath_separator()));
                 args.push(main_class.clone());
@@ -78,7 +87,10 @@ impl LaunchPlan {
         // Vanilla and the Forge-family installers open a GUI window unless told
         // otherwise; proxies have no such flag.
         if !kind.is_proxy()
-            && matches!(kind, ServerKind::Vanilla | ServerKind::Forge | ServerKind::NeoForge)
+            && matches!(
+                kind,
+                ServerKind::Vanilla | ServerKind::Forge | ServerKind::NeoForge
+            )
             && !args.iter().any(|a| a == "--nogui" || a == "nogui")
         {
             args.push("--nogui".to_string());
@@ -157,7 +169,9 @@ impl ExitInfo {
     pub fn describe(&self) -> String {
         match self.reason {
             ExitReason::IntentionalStop => "stopped".into(),
-            ExitReason::StoppedWithError => format!("stopped with exit code {}", self.code.unwrap_or(-1)),
+            ExitReason::StoppedWithError => {
+                format!("stopped with exit code {}", self.code.unwrap_or(-1))
+            }
             ExitReason::Killed => "killed".into(),
             ExitReason::Crashed => match (self.code, self.signal) {
                 (Some(c), _) if c != 0 => format!("crashed (exit code {c})"),
@@ -434,7 +448,9 @@ impl Instance {
                     .await;
             } else {
                 inner.consecutive_crashes.store(0, Relaxed);
-                inner.set_and_publish(ServerStatus::Stopped, None, &bus).await;
+                inner
+                    .set_and_publish(ServerStatus::Stopped, None, &bus)
+                    .await;
             }
             {
                 let mut st = inner.state.lock().await;
@@ -493,7 +509,11 @@ impl Instance {
                             Some(tick::ConsoleEvent::SaveDone) => inner.save_done.notify_waiters(),
                             Some(tick::ConsoleEvent::Crash) => {
                                 inner
-                                    .set_and_publish(ServerStatus::Crashed, Some("crash report detected"), &bus)
+                                    .set_and_publish(
+                                        ServerStatus::Crashed,
+                                        Some("crash report detected"),
+                                        &bus,
+                                    )
                                     .await;
                             }
                             _ => {}
@@ -574,7 +594,10 @@ impl Instance {
             }
         }
         let line = format!("> {trimmed}");
-        let seq = self.inner.ring.push(LogStream::System, line.clone(), line.clone());
+        let seq = self
+            .inner
+            .ring
+            .push(LogStream::System, line.clone(), line.clone());
         self.bus.publish(PanelEvent::Log(LogLine {
             seq,
             at_ms: now_ms(),
@@ -643,7 +666,10 @@ impl Instance {
         if let Some(exit) = self.inner.wait_for_exit(timeout).await {
             return Ok(exit);
         }
-        tracing::warn!(server = self.inner.server_id.get(), "graceful stop timed out, escalating");
+        tracing::warn!(
+            server = self.inner.server_id.get(),
+            "graceful stop timed out, escalating"
+        );
         // SIGTERM the group: one more chance to flush before SIGKILL.
         #[cfg(unix)]
         {
@@ -661,7 +687,9 @@ impl Instance {
     /// SIGKILL / TerminateProcess, no waiting for cooperation.
     pub async fn force_kill(&self, wait: Option<Duration>) -> Result<ExitInfo, CoreError> {
         self.inner.intentional.store(true, Relaxed);
-        let waiter = self.inner.wait_for_exit(wait.unwrap_or(Duration::from_secs(15)));
+        let waiter = self
+            .inner
+            .wait_for_exit(wait.unwrap_or(Duration::from_secs(15)));
         {
             let mut guard = self.inner.child.lock().await;
             if let Some(child) = guard.as_mut() {
@@ -787,7 +815,12 @@ impl Instance {
 }
 
 impl Inner {
-    async fn set_and_publish(&self, status: ServerStatus, reason: Option<&str>, bus: &Arc<EventBus>) {
+    async fn set_and_publish(
+        &self,
+        status: ServerStatus,
+        reason: Option<&str>,
+        bus: &Arc<EventBus>,
+    ) {
         let changed = {
             let mut current = self.status_cell_guard();
             if *current == status {
@@ -825,7 +858,10 @@ impl Inner {
         // Already finished? Hand back the recorded status without waiting.
         if matches!(
             self.status_now(),
-            ServerStatus::Stopped | ServerStatus::Crashed | ServerStatus::Killed | ServerStatus::NotInstalled
+            ServerStatus::Stopped
+                | ServerStatus::Crashed
+                | ServerStatus::Killed
+                | ServerStatus::NotInstalled
         ) {
             return self.state.lock().await.exit.clone();
         }
@@ -855,7 +891,10 @@ impl Inner {
         loop {
             let idle = matches!(
                 *rx.borrow_and_update(),
-                ServerStatus::Stopped | ServerStatus::Crashed | ServerStatus::Killed | ServerStatus::NotInstalled
+                ServerStatus::Stopped
+                    | ServerStatus::Crashed
+                    | ServerStatus::Killed
+                    | ServerStatus::NotInstalled
             );
             if idle {
                 return self.state.lock().await.exit.clone();

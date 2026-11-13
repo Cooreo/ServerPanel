@@ -39,3 +39,7 @@ dist-installers/
 .env
 .env.*
 !.env.example
+
+# Local check-harness dependencies (installed with npm --prefix tools).
+tools/node_modules
+tools/package-lock.json

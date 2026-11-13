@@ -41,11 +41,10 @@ use sqlx::Row;
 /// Read a `TEXT` column into `String`, mapping NULL to an error the caller can
 /// avoid by using [`text_opt`].
 pub(crate) fn text(row: &SqliteRow, col: &str) -> DbResult<String> {
-    Ok(text_opt(row, col)?
-        .ok_or_else(|| DbError::Corrupt {
-            column: col.to_string(),
-            value: "<null>".to_string(),
-        })?)
+    Ok(text_opt(row, col)?.ok_or_else(|| DbError::Corrupt {
+        column: col.to_string(),
+        value: "<null>".to_string(),
+    })?)
 }
 
 pub(crate) fn text_opt(row: &SqliteRow, col: &str) -> DbResult<Option<String>> {
@@ -92,13 +91,19 @@ pub(crate) fn json<T: serde::de::DeserializeOwned>(row: &SqliteRow, col: &str) -
     let raw = text(row, col)?;
     serde_json::from_str(&raw).map_err(|e| DbError::Corrupt {
         column: col.to_string(),
-        value: format!("invalid JSON ({e}): {}", &raw.chars().take(120).collect::<String>()),
+        value: format!(
+            "invalid JSON ({e}): {}",
+            &raw.chars().take(120).collect::<String>()
+        ),
     })
 }
 
 /// Same, but NULL/empty/invalid falls back to `Default` (used for columns we made
 /// optional after the fact).
-pub(crate) fn json_or_default<T: serde::de::DeserializeOwned + Default>(row: &SqliteRow, col: &str) -> T {
+pub(crate) fn json_or_default<T: serde::de::DeserializeOwned + Default>(
+    row: &SqliteRow,
+    col: &str,
+) -> T {
     text_opt(row, col)
         .ok()
         .flatten()
@@ -106,13 +111,15 @@ pub(crate) fn json_or_default<T: serde::de::DeserializeOwned + Default>(row: &Sq
         .unwrap_or_default()
 }
 
-pub(crate) fn to_json<T: serde::Serialize>(v: &T) -> DbResult<String> {
+/// `?Sized` so a `&[T]` can be serialised without the caller copying it into a `Vec`
+/// first: four repos hand slices straight through, and `T: Sized` turned each one into
+/// an "[T] has an unknown size at compile time" error at the call site.
+pub(crate) fn to_json<T: serde::Serialize + ?Sized>(v: &T) -> DbResult<String> {
     Ok(serde_json::to_string(v)?)
 }
 
-pub(crate) fn to_json_pretty<T: serde::Serialize>(v: &T) -> DbResult<String> {
+pub(crate) fn to_json_pretty<T: serde::Serialize + ?Sized>(v: &T) -> DbResult<String> {
     Ok(serde_json::to_string_pretty(v)?)
 }
 
 pub(crate) use sp_core::model::now_ms;
-

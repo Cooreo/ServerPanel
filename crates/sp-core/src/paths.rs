@@ -20,12 +20,17 @@ use std::path::{Component, Path, PathBuf};
 // CI, and "my data lives on D:" setups).
 
 fn env_path(key: &str) -> Option<PathBuf> {
-    std::env::var_os(key).map(PathBuf::from).filter(|p| !p.as_os_str().is_empty())
+    std::env::var_os(key)
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
 }
 
 fn home_dir() -> Option<PathBuf> {
-    env_path(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-        .or_else(|| std::env::var_os("HOMEDRIVE").zip(std::env::var_os("HOMEPATH")).map(|(d, p)| PathBuf::from(d).join(p)))
+    env_path(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).or_else(|| {
+        std::env::var_os("HOMEDRIVE")
+            .zip(std::env::var_os("HOMEPATH"))
+            .map(|(d, p)| PathBuf::from(d).join(p))
+    })
 }
 
 /// Windows: `%{FOLDERID_RoamingAppData}\ServerPanel`
@@ -44,7 +49,10 @@ pub fn data_root() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         if let Some(home) = home_dir() {
-            return home.join("Library").join("Application Support").join("ServerPanel");
+            return home
+                .join("Library")
+                .join("Application Support")
+                .join("ServerPanel");
         }
     }
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -150,8 +158,12 @@ pub fn required_dirs() -> Vec<PathBuf> {
 
 pub fn ensure_dirs() -> Result<(), CoreError> {
     for d in required_dirs() {
-        std::fs::create_dir_all(&d)
-            .map_err(|e| CoreError::Io(std::io::Error::new(e.kind(), format!("{}: {e}", d.display()))))?;
+        std::fs::create_dir_all(&d).map_err(|e| {
+            CoreError::Io(std::io::Error::new(
+                e.kind(),
+                format!("{}: {e}", d.display()),
+            ))
+        })?;
     }
     Ok(())
 }
@@ -232,9 +244,9 @@ impl Sandbox {
                     .map(canonicalize_existing)
                     .transpose()?
                     .unwrap_or_else(|| self.root.clone());
-                let file = candidate.file_name().ok_or_else(|| {
-                    CoreError::PathEscape("missing file name".into())
-                })?;
+                let file = candidate
+                    .file_name()
+                    .ok_or_else(|| CoreError::PathEscape("missing file name".into()))?;
                 let rebuilt = parent.join(file);
                 Self::assert_within(&self.root, &rebuilt)?;
                 return Ok(rebuilt);
@@ -360,7 +372,9 @@ pub fn is_safe_file_name(name: &str) -> bool {
     if n.is_empty() || n.len() > 255 || n == "." || n == ".." {
         return false;
     }
-    if n.chars().any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || (c as u32) < 0x20) {
+    if n.chars().any(|c| {
+        matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || (c as u32) < 0x20
+    }) {
         return false;
     }
     if n.ends_with('.') || n.ends_with(' ') {
@@ -370,8 +384,27 @@ pub fn is_safe_file_name(name: &str) -> bool {
     let stem = n.split('.').next().unwrap_or("").to_ascii_uppercase();
     !matches!(
         stem.as_str(),
-        "CON" | "PRN" | "AUX" | "NUL" | "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7"
-            | "COM8" | "COM9" | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8"
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
             | "LPT9"
     )
 }
@@ -379,9 +412,33 @@ pub fn is_safe_file_name(name: &str) -> bool {
 /// Capabilities-only check: does the target look like a text file we can edit?
 pub fn is_text_file(path: &Path) -> bool {
     const TEXT_EXT: &[&str] = &[
-        "txt", "json", "yaml", "yml", "toml", "properties", "cfg", "conf", "ini", "md", "log",
-        "mcfunction", "lang", "snbt", "nbt", "csv", "tsv", "js", "lua", "py", "xml", "html",
-        "css", "mcleaky", "eula", "geo", "biome",
+        "txt",
+        "json",
+        "yaml",
+        "yml",
+        "toml",
+        "properties",
+        "cfg",
+        "conf",
+        "ini",
+        "md",
+        "log",
+        "mcfunction",
+        "lang",
+        "snbt",
+        "nbt",
+        "csv",
+        "tsv",
+        "js",
+        "lua",
+        "py",
+        "xml",
+        "html",
+        "css",
+        "mcleaky",
+        "eula",
+        "geo",
+        "biome",
     ];
     match path.extension().and_then(|e| e.to_str()) {
         Some(e) => TEXT_EXT.contains(&e.to_ascii_lowercase().as_str()),
@@ -452,7 +509,10 @@ mod tests {
         // `C:\Windows` must never escape, on any platform.
         let err = sb.resolve("C:\\Windows\\win.ini").unwrap_err();
         assert!(matches!(err, CoreError::PathEscape(_)), "{err:?}");
-        assert!(sb.resolve("\\\\evil\\share\\x").is_ok(), "UNC prefix stripped to a normal name");
+        assert!(
+            sb.resolve("\\\\evil\\share\\x").is_ok(),
+            "UNC prefix stripped to a normal name"
+        );
     }
 
     #[test]
@@ -493,7 +553,12 @@ mod tests {
             std::fs::create_dir_all(sb.root().join("mods")).unwrap();
             std::os::unix::fs::symlink(&target, &link).unwrap();
             // resolve() may or may not allow reading; resolve_for_write must not.
-            let write_err = sb.resolve_for_write(sb.relativize(&link).unwrap_or_else(|_| "mods/evil.jar".into()));
+            // A named binding, because `resolve_for_write` takes `&str` and the
+            // `String` this fallback produces has no deref path through a call chain.
+            let rel = sb
+                .relativize(&link)
+                .unwrap_or_else(|_| "mods/evil.jar".to_string());
+            let write_err = sb.resolve_for_write(&rel);
             assert!(write_err.is_err(), "must refuse writing through a symlink");
         }
     }
@@ -521,13 +586,15 @@ mod tests {
         assert_eq!(sanitize_slug("Survival Spawn!"), "survival-spawn");
         assert_eq!(sanitize_slug("  "), "server");
         assert_eq!(sanitize_slug("测试"), "server", "non-ascii drops out");
-        assert_eq!(sanitize_slug("A".repeat(200)).len(), 40);
+        assert_eq!(sanitize_slug(&"A".repeat(200)).len(), 40);
         assert_eq!(sanitize_slug("my__server--x"), "my-server-x");
     }
 
     #[test]
     fn windows_reserved_names_rejected() {
-        for n in ["nul", "CON.txt", "com1", "LPT9", "a.", "a ", "", ".", "..", "a/b", "a\\b"] {
+        for n in [
+            "nul", "CON.txt", "com1", "LPT9", "a.", "a ", "", ".", "..", "a/b", "a\\b",
+        ] {
             assert!(!is_safe_file_name(n), "{n} must be rejected");
         }
         for n in ["server.jar", "plugins", "a-b_c.jar", "eula.txt", "世界"] {

@@ -53,7 +53,12 @@ impl<'a> Metrics<'a> {
 
     /// Oldest-first series for the charts, downsampled to at most `max_points` by
     /// taking the *worst* value per bucket (a chart should never hide a spike).
-    pub async fn series(&self, server_id: ServerId, since_ms: i64, max_points: usize) -> DbResult<Vec<Sample>> {
+    pub async fn series(
+        &self,
+        server_id: ServerId,
+        since_ms: i64,
+        max_points: usize,
+    ) -> DbResult<Vec<Sample>> {
         let rows = sqlx::query(
             "SELECT t_ms, cpu_percent, mem_used, mem_total, tps, mspt, players_online
              FROM metric_samples WHERE server_id = ? AND t_ms >= ? ORDER BY t_ms ASC",
@@ -120,7 +125,11 @@ impl<'a> Metrics<'a> {
         Ok(())
     }
 
-    pub async fn player_history(&self, server_id: ServerId, since_ms: i64) -> DbResult<Vec<PlayerSample>> {
+    pub async fn player_history(
+        &self,
+        server_id: ServerId,
+        since_ms: i64,
+    ) -> DbResult<Vec<PlayerSample>> {
         let rows = sqlx::query(
             "SELECT t_ms, online, max FROM player_samples WHERE server_id = ? AND t_ms >= ? ORDER BY t_ms ASC",
         )
@@ -175,7 +184,9 @@ mod tests {
     #[tokio::test]
     async fn records_queries_and_downsamples_to_peaks() {
         let dir = tempfile::tempdir().unwrap();
-        let db = Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap();
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
         let sid = ServerId::new(1);
         for i in 0..20 {
             db.metrics()
@@ -198,14 +209,37 @@ mod tests {
         assert_eq!(full.len(), 20);
         let shrunk = db.metrics().series(sid, 0, 4).await.unwrap();
         assert!(shrunk.len() <= 5 && shrunk.len() >= 3, "{:?}", shrunk.len());
-        assert!(shrunk.iter().any(|s| s.cpu_percent > 98.0), "the spike survives downsampling");
-        assert!(shrunk.iter().any(|s| s.tps == Some(12.0)), "the TPS dip survives too");
+        assert!(
+            shrunk.iter().any(|s| s.cpu_percent > 98.0),
+            "the spike survives downsampling"
+        );
+        assert!(
+            shrunk.iter().any(|s| s.tps == Some(12.0)),
+            "the TPS dip survives too"
+        );
         // out-of-range server / window
-        assert!(db.metrics().series(ServerId::new(99), 0, 0).await.unwrap().is_empty());
-        assert!(db.metrics().series(sid, i64::MAX, 0).await.unwrap().is_empty());
+        assert!(db
+            .metrics()
+            .series(ServerId::new(99), 0, 0)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(db
+            .metrics()
+            .series(sid, i64::MAX, 0)
+            .await
+            .unwrap()
+            .is_empty());
 
         db.metrics()
-            .record_players(sid, PlayerSample { t_ms: 1_000, online: 5, max: 20 })
+            .record_players(
+                sid,
+                PlayerSample {
+                    t_ms: 1_000,
+                    online: 5,
+                    max: 20,
+                },
+            )
             .await
             .unwrap();
         let hist = db.metrics().player_history(sid, 0).await.unwrap();

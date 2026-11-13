@@ -131,15 +131,17 @@ impl MavenVersion {
     }
 }
 
-
-
 /// Parse `maven-metadata.xml`. We only need `<version>` text, and the file is
 /// machine-generated, so a targeted regex beats an XML dependency.
 pub fn parse_maven_metadata(xml: &str) -> Vec<MavenVersion> {
     let re = Regex::new(r"<version>\s*([^<\s]+)\s*</version>").expect("valid pattern");
     let mut out: Vec<MavenVersion> = re
         .captures_iter(xml)
-        .filter_map(|c| c.get(1).map(|m| MavenVersion { version: m.as_str().to_string() }))
+        .filter_map(|c| {
+            c.get(1).map(|m| MavenVersion {
+                version: m.as_str().to_string(),
+            })
+        })
         .collect();
     out.retain(|v| !v.version.ends_with("-universal.jar"));
     out.sort_by(|a, b| {
@@ -230,7 +232,9 @@ impl ForgeProvider {
             .build_client()
             .ok()?;
         client
-            .get_json("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json")
+            .get_json(
+                "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json",
+            )
             .await
             .ok()
     }
@@ -302,7 +306,11 @@ impl Provider for ForgeProvider {
             .and_then(|p| mc_version.as_ref().and_then(|mc| p.recommended(mc)));
         let mut versions: Vec<VersionInfo> = all
             .iter()
-            .filter(|v| mc_version.map(|mc| v.mc_version(self.kind) == mc).unwrap_or(true))
+            .filter(|v| {
+                mc_version
+                    .map(|mc| v.mc_version(self.kind) == mc)
+                    .unwrap_or(true)
+            })
             .filter(|v| !v.is_prerelease())
             .take(60)
             .map(|v| self.info(v, promoted.as_deref() == Some(v.version.as_str())))
@@ -312,7 +320,11 @@ impl Provider for ForgeProvider {
             // entirely would be worse than labelling it.
             versions = all
                 .iter()
-                .filter(|v| mc_version.map(|mc| v.mc_version(self.kind) == mc).unwrap_or(true))
+                .filter(|v| {
+                    mc_version
+                        .map(|mc| v.mc_version(self.kind) == mc)
+                        .unwrap_or(true)
+                })
                 .take(20)
                 .map(|v| self.info(v, false))
                 .collect();
@@ -513,7 +525,10 @@ pub fn split_args(text: &str) -> Vec<String> {
             Some(q) => {
                 if c == q {
                     quote = None;
-                } else if c == '\\' && q == '"' && chars.peek().is_some_and(|n| *n == '"' || *n == '\\') {
+                } else if c == '\\'
+                    && q == '"'
+                    && chars.peek().is_some_and(|n| *n == '"' || *n == '\\')
+                {
                     cur.push(chars.next().unwrap());
                 } else {
                     cur.push(c);
@@ -584,11 +599,21 @@ mod tests {
 
     #[test]
     fn neoforge_version_numbers_map_back_to_minecraft() {
-        let v = MavenVersion { version: "21.4.118-beta".into() };
+        let v = MavenVersion {
+            version: "21.4.118-beta".into(),
+        };
         assert_eq!(v.mc_version(ModKind::NeoForge), "1.21");
-        let v2 = MavenVersion { version: "20.4.80".into() };
+        let v2 = MavenVersion {
+            version: "20.4.80".into(),
+        };
         assert_eq!(v2.mc_version(ModKind::NeoForge), "1.20");
-        assert!(v2.sort_key() < MavenVersion { version: "20.4.81".into() }.sort_key());
+        assert!(
+            v2.sort_key()
+                < MavenVersion {
+                    version: "20.4.81".into()
+                }
+                .sort_key()
+        );
     }
 
     #[test]
@@ -629,7 +654,11 @@ mod tests {
         );
         assert_eq!(split_args("  spaced   out  "), vec!["spaced", "out"]);
         assert_eq!(split_args("\"quoted empty\""), vec!["quoted empty"]);
-        assert_eq!(split_args("\"\""), vec![""], "an explicit empty arg survives");
+        assert_eq!(
+            split_args("\"\""),
+            vec![""],
+            "an explicit empty arg survives"
+        );
         assert_eq!(split_args("a\\ b"), vec!["a b"]);
         assert_eq!(split_args(""), Vec::<String>::new());
     }
@@ -667,7 +696,10 @@ mod tests {
             p.artifact_url("1.20.4-49.1.15", "-installer"),
             "https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.4-49.1.15/forge-1.20.4-49.1.15-installer.jar"
         );
-        assert_eq!(p.metadata_url(), "/net/minecraftforge/forge/maven-metadata.xml");
+        assert_eq!(
+            p.metadata_url(),
+            "/net/minecraftforge/forge/maven-metadata.xml"
+        );
         let n = ForgeProvider::neoforge(&cfg).unwrap();
         assert_eq!(
             n.artifact_url("21.4.118-beta", "-installer"),
@@ -702,7 +734,10 @@ mod tests {
 
         let listing = p.versions(Some("1.20.4")).await.unwrap();
         assert_eq!(listing.versions.len(), 2);
-        assert!(listing.versions.iter().all(|v| !v.unstable), "beta filtered");
+        assert!(
+            listing.versions.iter().all(|v| !v.unstable),
+            "beta filtered"
+        );
 
         let plan = p
             .plan(&VersionSelection {
@@ -714,7 +749,11 @@ mod tests {
             .unwrap();
         assert_eq!(plan.provider, "forge");
         assert_eq!(plan.java_major, 21);
-        assert_eq!(plan.files.len(), 1, "argfile era: only the installer is fetched");
+        assert_eq!(
+            plan.files.len(),
+            1,
+            "argfile era: only the installer is fetched"
+        );
         assert_eq!(plan.files[0].role, FileRole::Installer);
         assert_eq!(
             plan.files[0].sha1.as_deref(),
@@ -732,7 +771,11 @@ mod tests {
         let inst = plan.installer.as_ref().unwrap();
         assert_eq!(inst.args, vec!["--installServer".to_string()]);
         assert_eq!(inst.ok_exit_codes, vec![0, 1]);
-        assert!(inst.expected_artifact.as_ref().unwrap().ends_with("_args.txt"));
+        assert!(inst
+            .expected_artifact
+            .as_ref()
+            .unwrap()
+            .ends_with("_args.txt"));
 
         // Pre-1.17: the universal jar is fetched and launched with -jar nogui.
         let legacy = p

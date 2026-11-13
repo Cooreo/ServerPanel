@@ -20,7 +20,7 @@
 //!   for what is not substituted (`--username`-style placeholders are dropped).
 
 use crate::{
-    profile::{self, AssetIndex, Artifact, LaunchProfile, Library},
+    profile::{self, Artifact, AssetIndex, LaunchProfile, Library},
     CatalogEntry, DownloadFile, FileRole, InstallPlan, LaunchMode, Provider, RegistryConfig,
     VersionInfo, VersionSelection,
 };
@@ -239,27 +239,40 @@ pub fn library_files(libraries: &[Library], feats: &BTreeMap<String, bool>) -> V
         }
         if let Some(dl) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) {
             out.push(
-                DownloadFile::new(FileRole::Library, dl.url.clone(), crate::library_dest(&dl.path))
-                    .with_sha1(dl.sha1.clone(), dl.size),
+                DownloadFile::new(
+                    FileRole::Library,
+                    dl.url.clone(),
+                    crate::library_dest(&dl.path),
+                )
+                .with_sha1(dl.sha1.clone(), dl.size),
             );
-        } else if let (Some(base), Some(path)) = (
-            lib.url.as_deref(),
-            profile::maven_path(&lib.name),
-        ) {
+        } else if let (Some(base), Some(path)) =
+            (lib.url.as_deref(), profile::maven_path(&lib.name))
+        {
             // Maven-only libraries (Fabric/Quilt profiles use these).
             let url = format!("{}/{}", base.trim_end_matches('/'), path);
-            out.push(DownloadFile::new(FileRole::Library, url, crate::library_dest(&path)));
+            out.push(DownloadFile::new(
+                FileRole::Library,
+                url,
+                crate::library_dest(&path),
+            ));
         } else {
             tracing::debug!(library = %lib.name, "library has no downloadable artifact");
             continue;
         }
         let native_key = lib.natives.get(profile::os_name());
-        if let (Some(_), Some(classifiers)) = (native_key, lib.downloads.as_ref().map(|d| &d.classifiers)) {
+        if let (Some(_), Some(classifiers)) =
+            (native_key, lib.downloads.as_ref().map(|d| &d.classifiers))
+        {
             // The value can carry an arch placeholder: `"natives-windows-x86"`.
-            let key = native_key
-                .cloned()
-                .unwrap_or_default()
-                .replace("${arch}", if cfg!(target_pointer_width = "64") { "64" } else { "32" });
+            let key = native_key.cloned().unwrap_or_default().replace(
+                "${arch}",
+                if cfg!(target_pointer_width = "64") {
+                    "64"
+                } else {
+                    "32"
+                },
+            );
             let found = classifiers
                 .get(&key)
                 .or_else(|| native_key.and_then(|k| classifiers.get(k.as_str())));
@@ -275,7 +288,10 @@ fn native_file(art: &Artifact, _lib: &Library) -> DownloadFile {
     DownloadFile::new(
         FileRole::Native,
         art.url.clone(),
-        format!("natives/{}", art.path.rsplit('/').next().unwrap_or("native.jar")),
+        format!(
+            "natives/{}",
+            art.path.rsplit('/').next().unwrap_or("native.jar")
+        ),
     )
     .with_sha1(art.sha1.clone(), art.size)
 }
@@ -500,7 +516,11 @@ mod tests {
         assert_eq!(natives.len(), 1);
         assert!(natives[0]
             .dest
-            .ends_with(if profile::os_name() == "windows" { "nat-win.jar" } else { "nat-linux.jar" }));
+            .ends_with(if profile::os_name() == "windows" {
+                "nat-win.jar"
+            } else {
+                "nat-linux.jar"
+            }));
         assert_eq!(natives[0].sha1.as_deref().unwrap().len(), 2);
         assert_eq!(plan.natives_dir.as_deref(), Some("natives"));
     }
@@ -542,7 +562,10 @@ mod tests {
         let parent = profile_fixture();
         merge_into(&mut child, &parent);
         assert_eq!(child.libraries.len(), 4, "parent libraries come first");
-        assert_eq!(child.main_class.as_deref(), Some("net.minecraft.server.Main"));
+        assert_eq!(
+            child.main_class.as_deref(),
+            Some("net.minecraft.server.Main")
+        );
         assert!(child.downloads.contains_key("server"));
         assert_eq!(child.java_version.as_ref().unwrap().major_version, 21);
         assert_eq!(child.asset_index.as_ref().unwrap().id, "16");
@@ -558,13 +581,22 @@ mod tests {
             channel: ch,
             java_major: None,
         };
-        assert_eq!(resolve_id(&m, &sel(None, None, ReleaseChannel::Stable)).unwrap(), "1.21.4");
+        assert_eq!(
+            resolve_id(&m, &sel(None, None, ReleaseChannel::Stable)).unwrap(),
+            "1.21.4"
+        );
         assert_eq!(
             resolve_id(&m, &sel(None, None, ReleaseChannel::Beta)).unwrap(),
             "25w03a"
         );
-        assert_eq!(resolve_id(&m, &sel(None, Some("1.8.9"), ReleaseChannel::Stable)).unwrap(), "1.8.9");
-        assert_eq!(resolve_id(&m, &sel(Some("1.8.9"), None, ReleaseChannel::Stable)).unwrap(), "1.8.9");
+        assert_eq!(
+            resolve_id(&m, &sel(None, Some("1.8.9"), ReleaseChannel::Stable)).unwrap(),
+            "1.8.9"
+        );
+        assert_eq!(
+            resolve_id(&m, &sel(Some("1.8.9"), None, ReleaseChannel::Stable)).unwrap(),
+            "1.8.9"
+        );
         let err = resolve_id(&m, &sel(Some("9.9.9"), None, ReleaseChannel::Stable)).unwrap_err();
         assert_eq!(err.code(), "not_found");
     }

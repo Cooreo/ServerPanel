@@ -50,9 +50,11 @@ impl<'a> Users<'a> {
     }
 
     pub async fn list(&self) -> DbResult<Vec<User>> {
-        let rows = sqlx::query(&format!("SELECT {COLS} FROM users ORDER BY username COLLATE NOCASE"))
-            .fetch_all(self.pool())
-            .await?;
+        let rows = sqlx::query(&format!(
+            "SELECT {COLS} FROM users ORDER BY username COLLATE NOCASE"
+        ))
+        .fetch_all(self.pool())
+        .await?;
         rows.iter().map(map).collect()
     }
 
@@ -77,14 +79,16 @@ impl<'a> Users<'a> {
     }
 
     pub async fn create(&self, username: &str, password_hash: &str, role: Role) -> DbResult<User> {
-        let id = sqlx::query("INSERT INTO users (username, password_hash, role, created_at_ms) VALUES (?, ?, ?, ?)")
-            .bind(username)
-            .bind(password_hash)
-            .bind(codec::role_to_str(role))
-            .bind(now_ms())
-            .execute(self.pool())
-            .await?
-            .last_insert_rowid();
+        let id = sqlx::query(
+            "INSERT INTO users (username, password_hash, role, created_at_ms) VALUES (?, ?, ?, ?)",
+        )
+        .bind(username)
+        .bind(password_hash)
+        .bind(codec::role_to_str(role))
+        .bind(now_ms())
+        .execute(self.pool())
+        .await?
+        .last_insert_rowid();
         self.get(UserId::new(id))
             .await?
             .ok_or_else(|| DbError::Core(CoreError::other("insert did not produce a row")))
@@ -147,23 +151,32 @@ impl<'a> Users<'a> {
         let Some(row) = row else { return Ok(0) };
         let attempts: u32 = r::u32(&row, "failed_attempts")?.saturating_add(1);
         let locked: Option<i64> = (attempts >= max).then(|| now_ms() + lock_ms);
-        let _ = sqlx::query("UPDATE users SET failed_attempts = ?, locked_until_ms = ? WHERE id = ?")
-            .bind(i64::from(attempts))
-            .bind(locked)
-            .bind(id.get())
-            .execute(self.pool())
-            .await?;
+        let _ =
+            sqlx::query("UPDATE users SET failed_attempts = ?, locked_until_ms = ? WHERE id = ?")
+                .bind(i64::from(attempts))
+                .bind(locked)
+                .bind(id.get())
+                .execute(self.pool())
+                .await?;
         Ok(attempts)
     }
 
-    pub async fn set_prefs(&self, id: UserId, theme: Option<&str>, density: Option<&str>, accent: Option<&str>) -> DbResult<()> {
-        let _ = sqlx::query("UPDATE users SET theme_pref = ?, density_pref = ?, accent_pref = ? WHERE id = ?")
-            .bind(theme)
-            .bind(density)
-            .bind(accent)
-            .bind(id.get())
-            .execute(self.pool())
-            .await?;
+    pub async fn set_prefs(
+        &self,
+        id: UserId,
+        theme: Option<&str>,
+        density: Option<&str>,
+        accent: Option<&str>,
+    ) -> DbResult<()> {
+        let _ = sqlx::query(
+            "UPDATE users SET theme_pref = ?, density_pref = ?, accent_pref = ? WHERE id = ?",
+        )
+        .bind(theme)
+        .bind(density)
+        .bind(accent)
+        .bind(id.get())
+        .execute(self.pool())
+        .await?;
         Ok(())
     }
 
@@ -207,14 +220,23 @@ mod tests {
 
     async fn db() -> (tempfile::TempDir, Db) {
         let dir = tempfile::tempdir().unwrap();
-        (dir, Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap())
+        // Build the pool *before* moving `dir` into the tuple: tuple elements are evaluated
+        // in order, so `dir.path()` ran on a TempDir that had already been moved out.
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
+        (dir, db)
     }
 
     #[tokio::test]
     async fn create_lookup_and_role_changes() {
         let (_t, db) = db().await;
         assert!(db.users().needs_setup().await.unwrap());
-        let u = db.users().create("admin", "$argon2id$v=19$x$y", Role::Admin).await.unwrap();
+        let u = db
+            .users()
+            .create("admin", "$argon2id$v=19$x$y", Role::Admin)
+            .await
+            .unwrap();
         assert_eq!(u.username, "admin");
         assert_eq!(u.role, Role::Admin);
         assert!(!u.totp_enabled);
@@ -226,14 +248,22 @@ mod tests {
         assert!(db.users().by_username("nobody").await.unwrap().is_none());
 
         db.users().set_role(u.id, Role::Viewer).await.unwrap();
-        assert_eq!(db.users().get(u.id).await.unwrap().unwrap().role, Role::Viewer);
+        assert_eq!(
+            db.users().get(u.id).await.unwrap().unwrap().role,
+            Role::Viewer
+        );
     }
 
     #[tokio::test]
     async fn duplicate_usernames_are_conflicts() {
         let (_t, db) = db().await;
         db.users().create("bob", "h", Role::Viewer).await.unwrap();
-        let err: CoreError = db.users().create("BOB", "h", Role::Viewer).await.unwrap_err().into();
+        let err: CoreError = db
+            .users()
+            .create("BOB", "h", Role::Viewer)
+            .await
+            .unwrap_err()
+            .into();
         assert_eq!(err.code(), "conflict");
     }
 
@@ -246,7 +276,10 @@ mod tests {
         assert_eq!(db.users().record_failure(u.id, 3, 60_000).await.unwrap(), 3);
         let got = db.users().get(u.id).await.unwrap().unwrap();
         assert_eq!(got.failed_attempts, 3);
-        assert!(got.locked_until_ms.is_some(), "must be locked at the threshold");
+        assert!(
+            got.locked_until_ms.is_some(),
+            "must be locked at the threshold"
+        );
         db.users().touch_login(u.id).await.unwrap();
         let got = db.users().get(u.id).await.unwrap().unwrap();
         assert_eq!(got.failed_attempts, 0);
@@ -259,9 +292,18 @@ mod tests {
         let (_t, db) = db().await;
         let u = db.users().create("mfa", "h", Role::Admin).await.unwrap();
         assert!(db.users().totp_secret(u.id).await.unwrap().is_none());
-        db.users().set_totp(u.id, Some("JBSWY3DPEHPK3PXP"), false).await.unwrap();
-        assert_eq!(db.users().totp_secret(u.id).await.unwrap().as_deref(), Some("JBSWY3DPEHPK3PXP"));
-        db.users().set_totp(u.id, Some("JBSWY3DPEHPK3PXP"), true).await.unwrap();
+        db.users()
+            .set_totp(u.id, Some("JBSWY3DPEHPK3PXP"), false)
+            .await
+            .unwrap();
+        assert_eq!(
+            db.users().totp_secret(u.id).await.unwrap().as_deref(),
+            Some("JBSWY3DPEHPK3PXP")
+        );
+        db.users()
+            .set_totp(u.id, Some("JBSWY3DPEHPK3PXP"), true)
+            .await
+            .unwrap();
         assert!(db.users().get(u.id).await.unwrap().unwrap().totp_enabled);
         db.users().set_totp(u.id, None, false).await.unwrap();
         assert!(db.users().totp_secret(u.id).await.unwrap().is_none());
@@ -288,7 +330,10 @@ mod tests {
     async fn prefs_are_independent() {
         let (_t, db) = db().await;
         let u = db.users().create("p", "h", Role::Viewer).await.unwrap();
-        db.users().set_prefs(u.id, Some("amethyst"), None, Some("#7c5cff")).await.unwrap();
+        db.users()
+            .set_prefs(u.id, Some("amethyst"), None, Some("#7c5cff"))
+            .await
+            .unwrap();
         let got = db.users().get(u.id).await.unwrap().unwrap();
         assert_eq!(got.theme_pref.as_deref(), Some("amethyst"));
     }

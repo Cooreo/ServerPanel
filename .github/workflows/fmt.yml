@@ -1,0 +1,47 @@
+name: Format
+on:
+  push:
+    branches: ["main", "arena/**"]
+permissions:
+  contents: write
+jobs:
+  apply:
+    name: cargo fmt
+    # A formatting-only commit must not loop: it is produced by this workflow.
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format
+        run: cargo fmt --all
+      - name: Push if anything changed
+        run: |
+          set -e
+          if git diff --quiet; then
+            echo "the tree is already rustfmt-clean"
+            exit 0
+          fi
+          echo "### files rustfmt changed" >> "$GITHUB_STEP_SUMMARY"
+          git diff --stat >> "$GITHUB_STEP_SUMMARY"
+          git config user.name "serverpanel-bot"
+          git config user.email "bot@serverpanel.local"
+          cat > /tmp/msg <<'MSG'
+          style: cargo fmt --all [skip ci]
+
+          Applied by .github/workflows/fmt.yml, which exists because formatting is
+          mechanical: a human (or agent) hand-formatting Rust to satisfy a tool the
+          authoring environment cannot run is a tax on every change, and ci.yml's
+          rustfmt gate should be a fact rather than a fight. The commit is tagged
+          [skip ci] so this workflow does not loop; the formatting-only diff is
+          still compiled and clippy-checked by the run for the commit it was
+          applied on top of.
+
+          Co-Authored-By: Arena <noreply@arena.ai>
+          MSG
+          git commit -a --file /tmp/msg
+          git push origin "HEAD:${{ github.ref_name }}"

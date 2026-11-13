@@ -59,18 +59,30 @@ newtype_id!(
     /// Stable identifier for a managed Minecraft server.
     ServerId
 );
-newtype_id!(/// Identifier for a panel user.
-    UserId);
-newtype_id!(/// Identifier for a stored backup.
-    BackupId);
-newtype_id!(/// Identifier for a scheduled task.
-    TaskId);
-newtype_id!(/// Identifier for a Java runtime record.
-    JavaId);
-newtype_id!(/// One row of the rolling console ring buffer.
-    LogSeq);
-newtype_id!(/// Ephemeral id for a streamed upload/download.
-    FileTokenId);
+newtype_id!(
+    /// Identifier for a panel user.
+    UserId
+);
+newtype_id!(
+    /// Identifier for a stored backup.
+    BackupId
+);
+newtype_id!(
+    /// Identifier for a scheduled task.
+    TaskId
+);
+newtype_id!(
+    /// Identifier for a Java runtime record.
+    JavaId
+);
+newtype_id!(
+    /// One row of the rolling console ring buffer.
+    LogSeq
+);
+newtype_id!(
+    /// Ephemeral id for a streamed upload/download.
+    FileTokenId
+);
 
 /// `i64` is beyond `Number.MAX_SAFE_INTEGER` in JS if we ever use random ids, so
 /// these are always small, sequential rowids. The helpers below assert that.

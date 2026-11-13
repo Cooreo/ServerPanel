@@ -31,7 +31,8 @@ pub struct Servers<'a> {
     pub(crate) db: &'a Db,
 }
 
-const COLS: &str = "id, name, kind, mc_version, build, server_dir, config_json, status, install_state, \
+const COLS: &str =
+    "id, name, kind, mc_version, build, server_dir, config_json, status, install_state, \
                     install_error, eula_accepted, position, template_of, cpu_shares, tags_json, \
                     updated_at_ms, created_at_ms";
 
@@ -154,15 +155,20 @@ impl<'a> Servers<'a> {
     }
 
     /// Replace the runtime config and the derived columns the UI sorts on.
-    pub async fn update_config(&self, id: ServerId, config: &ServerRuntimeConfig) -> DbResult<Server> {
+    pub async fn update_config(
+        &self,
+        id: ServerId,
+        config: &ServerRuntimeConfig,
+    ) -> DbResult<Server> {
         let json = r::to_json(config)?;
-        let rows = sqlx::query("UPDATE servers SET config_json = ?, updated_at_ms = ? WHERE id = ?")
-            .bind(&json)
-            .bind(now_ms())
-            .bind(id.get())
-            .execute(self.pool())
-            .await?
-            .rows_affected();
+        let rows =
+            sqlx::query("UPDATE servers SET config_json = ?, updated_at_ms = ? WHERE id = ?")
+                .bind(&json)
+                .bind(now_ms())
+                .bind(id.get())
+                .execute(self.pool())
+                .await?
+                .rows_affected();
         if rows == 0 {
             return Err(DbError::Core(CoreError::not_found(format!("server {id}"))));
         }
@@ -293,11 +299,10 @@ impl<'a> Servers<'a> {
         // `json_extract` keeps this a single indexed-free scan of a table that is
         // tiny by construction (a dozen servers), and means the port never has to
         // be duplicated into its own column.
-        let rows = sqlx::query(
-            "SELECT json_extract(config_json, '$.port') AS port, id FROM servers",
-        )
-        .fetch_all(self.pool())
-        .await?;
+        let rows =
+            sqlx::query("SELECT json_extract(config_json, '$.port') AS port, id FROM servers")
+                .fetch_all(self.pool())
+                .await?;
         let mut out = Vec::new();
         for row in rows {
             let id: i64 = row.try_get("id")?;
@@ -351,10 +356,12 @@ impl<'a> Servers<'a> {
 
     /// The next free position for a new server.
     pub async fn next_position(&self) -> DbResult<i32> {
-        Ok(sqlx::query("SELECT COALESCE(MAX(position) + 1, 0) AS p FROM servers")
-            .fetch_one(self.pool())
-            .await?
-            .try_get::<i64, _>("p")? as i32)
+        Ok(
+            sqlx::query("SELECT COALESCE(MAX(position) + 1, 0) AS p FROM servers")
+                .fetch_one(self.pool())
+                .await?
+                .try_get::<i64, _>("p")? as i32,
+        )
     }
 }
 
@@ -394,7 +401,11 @@ mod tests {
     async fn create_read_update_delete() {
         let (_t, db) = db().await;
         let root = tempfile::tempdir().unwrap();
-        let s = db.servers().create(draft("Survival", root.path())).await.unwrap();
+        let s = db
+            .servers()
+            .create(draft("Survival", root.path()))
+            .await
+            .unwrap();
         assert_eq!(s.name, "Survival");
         assert_eq!(s.status, ServerStatus::NotInstalled);
         assert_eq!(s.install_state, InstallState::Pending);
@@ -413,7 +424,14 @@ mod tests {
 
         db.servers().set_name(s.id, "Survival 2").await.unwrap();
         assert_eq!(db.servers().get(s.id).await.unwrap().name, "Survival 2");
-        assert!(db.servers().get_by_name("survival 2").await.unwrap().is_some(), "case-insensitive lookup");
+        assert!(
+            db.servers()
+                .get_by_name("survival 2")
+                .await
+                .unwrap()
+                .is_some(),
+            "case-insensitive lookup"
+        );
 
         db.servers().delete(s.id).await.unwrap();
         assert!(db.servers().get_opt(s.id).await.unwrap().is_none());
@@ -442,8 +460,15 @@ mod tests {
     async fn duplicate_names_conflict() {
         let (_t, db) = db().await;
         let root = tempfile::tempdir().unwrap();
-        db.servers().create(draft("dup", root.path())).await.unwrap();
-        let err = db.servers().create(draft("DUP", root.path())).await.unwrap_err();
+        db.servers()
+            .create(draft("dup", root.path()))
+            .await
+            .unwrap();
+        let err = db
+            .servers()
+            .create(draft("DUP", root.path()))
+            .await
+            .unwrap_err();
         let core: CoreError = err.into();
         assert_eq!(core.code(), "conflict", "{core}");
     }
@@ -452,15 +477,28 @@ mod tests {
     async fn install_state_drives_status() {
         let (_t, db) = db().await;
         let root = tempfile::tempdir().unwrap();
-        let s = db.servers().create(draft("inst", root.path())).await.unwrap();
+        let s = db
+            .servers()
+            .create(draft("inst", root.path()))
+            .await
+            .unwrap();
         db.servers()
             .set_install_state(s.id, InstallState::Running, None, None, None)
             .await
             .unwrap();
-        assert_eq!(db.servers().get(s.id).await.unwrap().install_state, InstallState::Running);
+        assert_eq!(
+            db.servers().get(s.id).await.unwrap().install_state,
+            InstallState::Running
+        );
 
         db.servers()
-            .set_install_state(s.id, InstallState::Ready, None, Some("build 9"), Some("1.21.4"))
+            .set_install_state(
+                s.id,
+                InstallState::Ready,
+                None,
+                Some("build 9"),
+                Some("1.21.4"),
+            )
             .await
             .unwrap();
         let s = db.servers().get(s.id).await.unwrap();
@@ -469,12 +507,22 @@ mod tests {
         assert_eq!(s.build, "build 9");
 
         db.servers()
-            .set_install_state(s.id, InstallState::Failed, Some("404 from papermc"), None, None)
+            .set_install_state(
+                s.id,
+                InstallState::Failed,
+                Some("404 from papermc"),
+                None,
+                None,
+            )
             .await
             .unwrap();
         let s = db.servers().get(s.id).await.unwrap();
         assert_eq!(s.install_state, InstallState::Failed);
-        assert_eq!(s.status, ServerStatus::Crashed, "a failed install shows as crashed-with-reason");
+        assert_eq!(
+            s.status,
+            ServerStatus::Crashed,
+            "a failed install shows as crashed-with-reason"
+        );
     }
 
     #[tokio::test]
@@ -483,12 +531,21 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let a = db.servers().create(draft("a", root.path())).await.unwrap();
         let b = db.servers().create(draft("b", root.path())).await.unwrap();
-        db.servers().set_status(a.id, ServerStatus::Running).await.unwrap();
-        db.servers().set_status(b.id, ServerStatus::Stopped).await.unwrap();
+        db.servers()
+            .set_status(a.id, ServerStatus::Running)
+            .await
+            .unwrap();
+        db.servers()
+            .set_status(b.id, ServerStatus::Stopped)
+            .await
+            .unwrap();
         assert_eq!(db.servers().should_autostart().await.unwrap().len(), 1);
         assert_eq!(db.servers().mark_stale_statuses_stopped().await.unwrap(), 1);
         assert!(db.servers().should_autostart().await.unwrap().is_empty());
-        assert_eq!(db.servers().get(a.id).await.unwrap().status, ServerStatus::Stopped);
+        assert_eq!(
+            db.servers().get(a.id).await.unwrap().status,
+            ServerStatus::Stopped
+        );
     }
 
     #[tokio::test]
@@ -505,8 +562,14 @@ mod tests {
         let b = db.servers().create(d2).await.unwrap();
         let used = db.servers().used_ports(None).await.unwrap();
         assert_eq!(used, vec![25565, 25566]);
-        assert_eq!(db.servers().used_ports(Some(a.id)).await.unwrap(), vec![25566]);
-        assert_eq!(db.servers().used_ports(Some(b.id)).await.unwrap(), vec![25565]);
+        assert_eq!(
+            db.servers().used_ports(Some(a.id)).await.unwrap(),
+            vec![25566]
+        );
+        assert_eq!(
+            db.servers().used_ports(Some(b.id)).await.unwrap(),
+            vec![25565]
+        );
     }
 
     #[tokio::test]
@@ -523,7 +586,10 @@ mod tests {
         let got = db.servers().get(s.id).await.unwrap();
         assert_eq!(got.config.jvm_flags, sp_core::flags::zgc_flags(21));
         assert_eq!(got.config.restart_policy, RestartPolicy::on_crash(5, 30));
-        assert_eq!(got.config.env.get("SPRING_PROFILES").map(String::as_str), Some("prod"));
+        assert_eq!(
+            got.config.env.get("SPRING_PROFILES").map(String::as_str),
+            Some("prod")
+        );
         assert_eq!(got.config.program_args, vec!["--nogui".to_string()]);
         assert_eq!(got.config.world_override.as_deref(), Some("world_nether"));
         assert_eq!(got.config.memory_mb, 2048);
@@ -544,10 +610,20 @@ mod tests {
     async fn cpu_shares_are_optional() {
         let (_t, db) = db().await;
         let root = tempfile::tempdir().unwrap();
-        let s = db.servers().create(draft("cpu", root.path())).await.unwrap();
+        let s = db
+            .servers()
+            .create(draft("cpu", root.path()))
+            .await
+            .unwrap();
         assert_eq!(s.cpu_shares_percent, None);
         let s = db.servers().set_cpu_shares(s.id, Some(75)).await.unwrap();
         assert_eq!(s.cpu_shares_percent, Some(75));
-        assert!(db.servers().set_cpu_shares(s.id, None).await.unwrap().cpu_shares_percent.is_none());
+        assert!(db
+            .servers()
+            .set_cpu_shares(s.id, None)
+            .await
+            .unwrap()
+            .cpu_shares_percent
+            .is_none());
     }
 }

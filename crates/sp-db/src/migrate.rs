@@ -42,7 +42,9 @@ pub async fn run(pool: &SqlitePool) -> DbResult<Vec<String>> {
     .execute(pool)
     .await?;
 
-    let rows = sqlx::query("SELECT name FROM sp_migrations").fetch_all(pool).await?;
+    let rows = sqlx::query("SELECT name FROM sp_migrations")
+        .fetch_all(pool)
+        .await?;
     let applied: Vec<String> = rows
         .iter()
         .map(|r| r.try_get::<String, _>("name"))
@@ -65,12 +67,13 @@ pub async fn run(pool: &SqlitePool) -> DbResult<Vec<String>> {
         }
         let mut tx = pool.begin().await?;
         for (idx, stmt) in split_statements(m.sql).into_iter().enumerate() {
-            sqlx::query(&stmt).execute(&mut *tx).await.map_err(|e| {
-                DbError::Migration {
+            sqlx::query(&stmt)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| DbError::Migration {
                     name: format!("{} (statement {})", m.name, idx + 1),
                     reason: e.to_string(),
-                }
-            })?;
+                })?;
         }
         let _ = sqlx::query("INSERT INTO sp_migrations (name, applied_at_ms) VALUES (?, ?)")
             .bind(m.name)
@@ -254,7 +257,8 @@ mod tests {
 
     #[test]
     fn ignores_comments_and_quotes() {
-        let sql = "-- a; comment; never splits\nSELECT ';' AS x; /* block ; split\nhere */ SELECT 2;";
+        let sql =
+            "-- a; comment; never splits\nSELECT ';' AS x; /* block ; split\nhere */ SELECT 2;";
         let stmts = split_statements(sql);
         assert_eq!(stmts.len(), 2, "{stmts:?}");
         assert!(stmts[0].contains("';' AS x"), "{:?}", stmts[0]);
@@ -288,9 +292,16 @@ mod tests {
     #[test]
     fn the_single_initial_migration_is_valid_sql() {
         let stmts = split_statements(MIGRATIONS[0].sql);
-        assert!(stmts.len() > 30, "expected many statements, got {}", stmts.len());
+        assert!(
+            stmts.len() > 30,
+            "expected many statements, got {}",
+            stmts.len()
+        );
         for s in &stmts {
-            assert!(!s.contains(';'), "statement must not contain a semicolon: {s}");
+            assert!(
+                !s.contains(';'),
+                "statement must not contain a semicolon: {s}"
+            );
             assert!(
                 s.starts_with("CREATE") || s.starts_with("INSERT"),
                 "unexpected statement shape: {s}"
@@ -303,9 +314,18 @@ mod tests {
         let db = crate::Db::in_memory().await.unwrap();
         let pool = db.pool();
         let again = run(pool).await.unwrap();
-        assert!(again.is_empty(), "a second run must apply nothing, got {again:?}");
-        assert_eq!(read_meta_u32(pool, "schema_version").await.unwrap(), Some(crate::SCHEMA_VERSION));
-        assert_eq!(read_meta(pool, "panel_version").await.unwrap().as_deref(), Some("0.1.0"));
+        assert!(
+            again.is_empty(),
+            "a second run must apply nothing, got {again:?}"
+        );
+        assert_eq!(
+            read_meta_u32(pool, "schema_version").await.unwrap(),
+            Some(crate::SCHEMA_VERSION)
+        );
+        assert_eq!(
+            read_meta(pool, "panel_version").await.unwrap().as_deref(),
+            Some("0.1.0")
+        );
         let n: i64 = sqlx::query("SELECT COUNT(*) AS n FROM sp_migrations")
             .fetch_one(pool)
             .await
@@ -318,8 +338,13 @@ mod tests {
     #[tokio::test]
     async fn refuses_a_newer_database() {
         let db = crate::Db::in_memory().await.unwrap();
-        write_meta(db.pool(), "schema_version", "999").await.unwrap();
+        write_meta(db.pool(), "schema_version", "999")
+            .await
+            .unwrap();
         let err = run(db.pool()).await.unwrap_err();
-        assert!(matches!(err, DbError::SchemaTooNew { found: 999, .. }), "{err}");
+        assert!(
+            matches!(err, DbError::SchemaTooNew { found: 999, .. }),
+            "{err}"
+        );
     }
 }

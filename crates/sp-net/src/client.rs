@@ -17,16 +17,29 @@ pub struct Retry {
 
 impl Default for Retry {
     fn default() -> Self {
-        Self { attempts: 4, base: Duration::from_millis(500), factor: 2.0 }
+        Self {
+            attempts: 4,
+            base: Duration::from_millis(500),
+            factor: 2.0,
+        }
     }
 }
 
 impl Retry {
     pub const fn none() -> Self {
-        Self { attempts: 1, base: Duration::from_millis(0), factor: 1.0 }
+        Self {
+            attempts: 1,
+            base: Duration::from_millis(0),
+            factor: 1.0,
+        }
     }
     pub const fn from_config(attempts: u32, base_ms: u64) -> Self {
-        Self { attempts: attempts.max(1), base: Duration::from_millis(base_ms), factor: 2.0 }
+        Self {
+            // `u32::max` is not const on the MSRV (1.80) and `Ord` is not a const trait.
+            attempts: if attempts == 0 { 1 } else { attempts },
+            base: Duration::from_millis(base_ms),
+            factor: 2.0,
+        }
     }
     pub fn delay_for(&self, attempt: u32) -> Duration {
         let exp = 2u32.pow(attempt.min(6));
@@ -140,10 +153,13 @@ impl HttpClientBuilder {
             b = b.timeout(Duration::from_secs(120));
         }
         if let Some(p) = &self.proxy {
-            let proxy = reqwest::Proxy::all(p).map_err(|e| CoreError::other(format!("bad proxy: {e}")))?;
+            let proxy =
+                reqwest::Proxy::all(p).map_err(|e| CoreError::other(format!("bad proxy: {e}")))?;
             b = b.proxy(proxy);
         }
-        let inner = b.build().map_err(|e| CoreError::other(format!("http client: {e}")))?;
+        let inner = b
+            .build()
+            .map_err(|e| CoreError::other(format!("http client: {e}")))?;
         Ok(HttpClient {
             inner,
             retry: self.retry.unwrap_or_default(),
@@ -156,7 +172,9 @@ impl HttpClientBuilder {
 impl HttpClient {
     /// Production client with the default retry policy.
     pub fn new() -> Self {
-        HttpClientBuilder::default().build_client().expect("default headers are valid")
+        HttpClientBuilder::default()
+            .build_client()
+            .expect("default headers are valid")
     }
 
     pub fn with_retry(mut self, retry: Retry) -> Self {
@@ -179,10 +197,12 @@ impl HttpClient {
     /// Join `url` onto the configured base when it is relative.
     pub fn resolve(&self, url: &str) -> String {
         match &self.base_url {
-            Some(base)
-                if !url.starts_with("http://") && !url.starts_with("https://") =>
-            {
-                format!("{}/{}", base.trim_end_matches('/'), url.trim_start_matches('/'))
+            Some(base) if !url.starts_with("http://") && !url.starts_with("https://") => {
+                format!(
+                    "{}/{}",
+                    base.trim_end_matches('/'),
+                    url.trim_start_matches('/')
+                )
             }
             _ => url.to_string(),
         }
@@ -202,7 +222,10 @@ impl HttpClient {
 
     /// `GET` → `T`, retried. Errors distinguish "not found" from "unreachable" so
     /// the UI can say "no builds published for that version" instead of "network".
-    pub async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T, CoreError> {
+    pub async fn get_json<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+    ) -> Result<T, CoreError> {
         let text = self.get_text(url).await?;
         serde_json::from_str(&text).map_err(|e| CoreError::Upstream {
             service: self.service_hint,
@@ -212,12 +235,14 @@ impl HttpClient {
     }
 
     pub async fn get_text(&self, url: &str) -> Result<String, CoreError> {
-        self.send_retrying(self.get(url)).await?.text().await.map_err(|e| {
-            CoreError::UpstreamUnavailable {
+        self.send_retrying(self.get(url))
+            .await?
+            .text()
+            .await
+            .map_err(|e| CoreError::UpstreamUnavailable {
                 service: self.service_hint,
                 source: e.into(),
-            }
-        })
+            })
     }
 
     /// Like [`HttpClient::get_text`] but also returns response headers, so
@@ -225,10 +250,13 @@ impl HttpClient {
     pub async fn get_text_with_headers(&self, url: &str) -> Result<(String, HeaderMap), CoreError> {
         let resp = self.send_retrying(self.get(url)).await?;
         let headers = resp.headers().clone();
-        let body = resp.text().await.map_err(|e| CoreError::UpstreamUnavailable {
-            service: self.service_hint,
-            source: e.into(),
-        })?;
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| CoreError::UpstreamUnavailable {
+                service: self.service_hint,
+                source: e.into(),
+            })?;
         Ok((body, headers))
     }
 
@@ -237,15 +265,15 @@ impl HttpClient {
         url: &str,
         body: &B,
     ) -> Result<T, CoreError> {
-        let resp = self
-            .post(url)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| CoreError::UpstreamUnavailable {
-                service: self.service_hint,
-                source: e.into(),
-            })?;
+        let resp =
+            self.post(url)
+                .json(body)
+                .send()
+                .await
+                .map_err(|e| CoreError::UpstreamUnavailable {
+                    service: self.service_hint,
+                    source: e.into(),
+                })?;
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
@@ -263,12 +291,17 @@ impl HttpClient {
     }
 
     /// Send with retries applied to the *request*, returning a successful response.
-    pub async fn send_retrying(&self, builder: reqwest::RequestBuilder) -> Result<reqwest::Response, CoreError> {
+    pub async fn send_retrying(
+        &self,
+        builder: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, CoreError> {
         let mut attempt = 0u32;
         loop {
             // `try_clone` lets us resend the same request after a failure.
             let Some(b) = builder.try_clone() else {
-                return Err(CoreError::other("request was not retryable (body already consumed)"));
+                return Err(CoreError::other(
+                    "request was not retryable (body already consumed)",
+                ));
             };
             match b.send().await {
                 Ok(resp) => {
@@ -277,7 +310,8 @@ impl HttpClient {
                         return Ok(resp);
                     }
                     if Retry::is_retryable_status(status) && attempt + 1 < self.retry.attempts {
-                        let delay = retry_after(resp.headers()).unwrap_or_else(|| self.retry.delay_for(attempt));
+                        let delay = retry_after(resp.headers())
+                            .unwrap_or_else(|| self.retry.delay_for(attempt));
                         attempt += 1;
                         tracing::warn!(%status, attempt, ?delay, "retrying request");
                         drop(resp);
@@ -301,7 +335,9 @@ impl HttpClient {
                     });
                 }
                 Err(e) => {
-                    if attempt + 1 >= self.retry.attempts || !e.is_connect() && !e.is_request() && !e.is_timeout() && !e.is_body() {
+                    if attempt + 1 >= self.retry.attempts
+                        || !e.is_connect() && !e.is_request() && !e.is_timeout() && !e.is_body()
+                    {
                         return Err(CoreError::UpstreamUnavailable {
                             service: self.service_hint,
                             source: e.into(),
@@ -355,17 +391,27 @@ mod tests {
         assert_eq!(r.delay_for(0), Duration::from_millis(500));
         assert_eq!(r.delay_for(1), Duration::from_millis(1000));
         assert_eq!(r.delay_for(2), Duration::from_millis(2000));
-        assert_eq!(r.delay_for(32), Duration::from_millis(500) * 64, "clamped at 2^6");
+        assert_eq!(
+            r.delay_for(32),
+            Duration::from_millis(500) * 64,
+            "clamped at 2^6"
+        );
         assert_eq!(Retry::none().attempts, 1);
     }
 
     #[test]
     fn retryable_status_set() {
-        assert!(Retry::is_retryable_status(reqwest::StatusCode::TOO_MANY_REQUESTS));
+        assert!(Retry::is_retryable_status(
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        ));
         assert!(Retry::is_retryable_status(reqwest::StatusCode::BAD_GATEWAY));
-        assert!(Retry::is_retryable_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(Retry::is_retryable_status(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
         assert!(!Retry::is_retryable_status(reqwest::StatusCode::NOT_FOUND));
-        assert!(!Retry::is_retryable_status(reqwest::StatusCode::BAD_REQUEST));
+        assert!(!Retry::is_retryable_status(
+            reqwest::StatusCode::BAD_REQUEST
+        ));
     }
 
     #[test]
@@ -374,11 +420,22 @@ mod tests {
         h.insert(reqwest::header::RETRY_AFTER, HeaderValue::from_static("12"));
         assert_eq!(retry_after(&h), Some(Duration::from_secs(12)));
         assert_eq!(retry_after(&HeaderMap::new()), None);
-        h.insert(reqwest::header::RETRY_AFTER, HeaderValue::from_static("Wed, 21 Oct 2025"));
-        assert_eq!(retry_after(&h), None, "HTTP-dates are not parsed, we fall back to backoff");
+        h.insert(
+            reqwest::header::RETRY_AFTER,
+            HeaderValue::from_static("Wed, 21 Oct 2025"),
+        );
+        assert_eq!(
+            retry_after(&h),
+            None,
+            "HTTP-dates are not parsed, we fall back to backoff"
+        );
         assert_eq!(retry_after_from_text("Please wait 45 seconds"), Some(45));
         assert_eq!(retry_after_from_text("nope"), None);
-        assert_eq!(retry_after_from_text("9999999"), None, "absurd values rejected");
+        assert_eq!(
+            retry_after_from_text("9999999"),
+            None,
+            "absurd values rejected"
+        );
     }
 
     #[test]
@@ -399,8 +456,14 @@ mod tests {
             .connect_timeout(Duration::from_secs(1))
             .build_client()
             .unwrap();
-        let headers = c.raw().headers();
-        assert_eq!(headers.get(USER_AGENT).unwrap().to_str().unwrap(), "TestAgent/1.0");
+        // `reqwest::Client` exposes no header map; what matters is what the built
+        // request carries, so build one and read those headers.
+        let req = c.raw().get("https://example.invalid/").build().unwrap();
+        let headers = req.headers();
+        assert_eq!(
+            headers.get(USER_AGENT).unwrap().to_str().unwrap(),
+            "TestAgent/1.0"
+        );
         assert_eq!(headers.get("x-test").unwrap().to_str().unwrap(), "1");
         // relative URL resolution proves the client is usable without a base
         assert!(c.get("https://example.com").build().is_ok());
@@ -408,7 +471,13 @@ mod tests {
 
     #[test]
     fn proxy_is_validated() {
-        assert!(HttpClientBuilder::new().proxy("not a url").build_client().is_err());
-        assert!(HttpClientBuilder::new().proxy("http://127.0.0.1:8080").build_client().is_ok());
+        assert!(HttpClientBuilder::new()
+            .proxy("not a url")
+            .build_client()
+            .is_err());
+        assert!(HttpClientBuilder::new()
+            .proxy("http://127.0.0.1:8080")
+            .build_client()
+            .is_ok());
     }
 }

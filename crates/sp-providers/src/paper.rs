@@ -123,7 +123,11 @@ impl PaperProvider {
     }
 
     fn path(&self, tail: &str) -> String {
-        format!("/v2/projects/{}/{}", self.slug, tail.trim_start_matches('/'))
+        format!(
+            "/v2/projects/{}/{}",
+            self.slug,
+            tail.trim_start_matches('/')
+        )
     }
 
     pub async fn mc_versions(&self) -> Result<Vec<String>, CoreError> {
@@ -165,8 +169,10 @@ impl PaperProvider {
             .downloads
             .get("application")
             .map(|d| {
-                vec![DownloadFile::new(FileRole::ServerJar, d.url.clone(), self.kind.jar_name())
-                    .with_sha256(d.checksum.clone().or_else(|| d.sha256.clone()), None)]
+                vec![
+                    DownloadFile::new(FileRole::ServerJar, d.url.clone(), self.kind.jar_name())
+                        .with_sha256(d.checksum.clone().or_else(|| d.sha256.clone()), None),
+                ]
             })
             .unwrap_or_default();
         VersionInfo {
@@ -257,7 +263,8 @@ impl Provider for PaperProvider {
             })?;
         let build = match &sel.exact {
             Some(exact) if exact.chars().all(|c| c.is_ascii_digit()) => {
-                self.plan_build(&mc, exact.parse::<u64>().unwrap_or(0)).await?
+                self.plan_build(&mc, exact.parse::<u64>().unwrap_or(0))
+                    .await?
             }
             // `<mc>-<build>` form, as typed in the API or copied from a link.
             Some(exact) => {
@@ -269,29 +276,39 @@ impl Provider for PaperProvider {
             }
             None => self.current_build(&mc).await?,
         };
-        let application = build.downloads.get("application").ok_or_else(|| {
-            CoreError::Upstream {
-                service: self.slug,
-                status: 200,
-                body: format!("build {} published no application download", build.build),
-            }
-        })?;
+        let application =
+            build
+                .downloads
+                .get("application")
+                .ok_or_else(|| CoreError::Upstream {
+                    service: self.slug,
+                    status: 200,
+                    body: format!("build {} published no application download", build.build),
+                })?;
         let info = self.build_to_version(&build);
-        let mut notes = vec![
-            "Paper replaces the vanilla server: keep `server.properties` as-is".to_string(),
-        ];
+        let mut notes =
+            vec!["Paper replaces the vanilla server: keep `server.properties` as-is".to_string()];
         if let Some(first) = build.commits.first().and_then(|c| c.message.as_ref()) {
             notes.push(format!("Latest change: {}", first.trim()));
         }
         Ok(InstallPlan {
             provider: self.slug,
-            version: VersionInfo { downloads: info.downloads, ..info },
+            version: VersionInfo {
+                downloads: info.downloads,
+                ..info
+            },
             files: vec![DownloadFile::new(
                 FileRole::ServerJar,
                 application.url.clone(),
                 self.kind.jar_name(),
             )
-            .with_sha256(application.checksum.clone().or_else(|| application.sha256.clone()), None)],
+            .with_sha256(
+                application
+                    .checksum
+                    .clone()
+                    .or_else(|| application.sha256.clone()),
+                None,
+            )],
             launch: LaunchMode::Jar {
                 jar: self.kind.jar_name().to_string(),
                 args: Vec::new(),
@@ -451,8 +468,13 @@ impl Provider for PurpurProvider {
             .mc_version
             .as_deref()
             .or(sel.exact.as_deref())
-            .ok_or_else(|| CoreError::validation("mc_version", "purpur needs a Minecraft version"))?;
-        let build: PurpurBuild = self.client.get_json(&format!("/v2/purpur/{mc}/latest")).await?;
+            .ok_or_else(|| {
+                CoreError::validation("mc_version", "purpur needs a Minecraft version")
+            })?;
+        let build: PurpurBuild = self
+            .client
+            .get_json(&format!("/v2/purpur/{mc}/latest"))
+            .await?;
         let version = self.to_version(mc, &build);
         let java_major = match &self.mojang {
             Some(m) => m.java_major_for(mc).await,
@@ -601,7 +623,11 @@ mod tests {
             p.path("versions/1.21.4/builds/current"),
             "/v2/projects/paper/versions/1.21.4/builds/current"
         );
-        assert_eq!(p.path("/v2/x"), "/v2/projects/paper/v2/x", "double prefixes are a config bug, not ours to hide");
+        assert_eq!(
+            p.path("/v2/x"),
+            "/v2/projects/paper/v2/x",
+            "double prefixes are a config bug, not ours to hide"
+        );
     }
 
     #[tokio::test]
@@ -610,11 +636,15 @@ mod tests {
         let mut routes = BTreeMap::new();
         routes.insert(
             "/v2/projects/paper",
-            r#"{"name":"Paper","version":"2.0.0","url":"/v2","versions":["1.21.2","1.21.4"]}"#.to_string(),
+            r#"{"name":"Paper","version":"2.0.0","url":"/v2","versions":["1.21.2","1.21.4"]}"#
+                .to_string(),
         );
         routes.insert(
             "/v2/projects/paper/versions/1.21.4/builds",
-            format!(r#"{{"project":"paper","version":"1.21.4","builds":[{}]}"#, serde_json::to_string(&b).unwrap()),
+            format!(
+                r#"{{"project":"paper","version":"1.21.4","builds":[{}]}"#,
+                serde_json::to_string(&b).unwrap()
+            ),
         );
         routes.insert(
             "/v2/projects/paper/versions/1.21.4/builds/current",
@@ -644,7 +674,11 @@ mod tests {
         // The version listing hits `/v2/projects/paper` and nothing else
         // (java_major_for resolves via the mojang base URL → mock 404 → None).
         let versions_entry = p.versions(None).await.unwrap();
-        assert_eq!(versions_entry.versions.len(), 2, "newest last in the API, reversed for the UI");
+        assert_eq!(
+            versions_entry.versions.len(),
+            2,
+            "newest last in the API, reversed for the UI"
+        );
         assert_eq!(versions_entry.versions[0].id, "1.21.4");
         assert!(versions_entry.versions[0].note.is_some());
 
@@ -683,7 +717,10 @@ mod tests {
     async fn purpur_listing_and_plan() {
         let b = purpur_fixture();
         let mut routes = BTreeMap::new();
-        routes.insert("/v2/purpur", r#"{"project":"purpur","versions":["1.21.3","1.21.4"]}"#.to_string());
+        routes.insert(
+            "/v2/purpur",
+            r#"{"project":"purpur","versions":["1.21.3","1.21.4"]}"#.to_string(),
+        );
         routes.insert(
             "/v2/purpur/1.21.4",
             r#"{"project":"purpur","version":"1.21.4","builds":[2283,2285]}"#.to_string(),
@@ -735,9 +772,15 @@ mod tests {
         )
         .unwrap();
         let err = p.versions(None).await.unwrap_err();
-        assert_eq!(err.code(), "upstream", "a 404 is an upstream answer, not a crash");
+        assert_eq!(
+            err.code(),
+            "upstream",
+            "a 404 is an upstream answer, not a crash"
+        );
         match err {
-            CoreError::Upstream { service, status, .. } => {
+            CoreError::Upstream {
+                service, status, ..
+            } => {
                 assert_eq!(service, "paper");
                 assert_eq!(status, 404);
             }
