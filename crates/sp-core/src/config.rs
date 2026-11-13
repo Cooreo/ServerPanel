@@ -414,29 +414,26 @@ fn toml_to_json(v: toml::Value) -> serde_json::Value {
 
 /// Deep-merge `src` into `dst`, reporting the source path on error.
 fn merge(dst: &mut serde_json::Value, src: serde_json::Value, at: &str) -> Result<(), CoreError> {
-    // Match the *shapes* before destructuring. `match (dst, src)` moves the
-    // `&mut Value` into the tuple, and the loop below needs `dst` again on the next
-    // iteration — "use of moved value: `dst`".
-    if !(dst.is_object() && src.is_object()) {
-        *dst = src;
-        return Ok(());
-    }
-    let serde_json::Value::Object(src_map) = src else {
-        unreachable!("both sides were just checked to be objects")
-    };
-    let dst_map = dst.as_object_mut().expect("checked above");
-    for (k, v) in src_map {
-        match dst_map.get_mut(&k) {
-            Some(existing) => merge(existing, v, &format!("{at}.{k}"))?,
-            None => {
-                return Err(CoreError::Validation {
-                    field: format!("{at}.{k}"),
-                    reason: "unknown configuration key".into(),
-                })
+    match (dst, src) {
+        (serde_json::Value::Object(dst_map), serde_json::Value::Object(src_map)) => {
+            for (k, v) in src_map {
+                match dst_map.get_mut(&k) {
+                    Some(existing) => merge(existing, v, &format!("{at}.{k}"))?,
+                    None => {
+                        return Err(CoreError::Validation {
+                            field: format!("{at}.{k}"),
+                            reason: "unknown configuration key".into(),
+                        })
+                    }
+                }
             }
+            Ok(())
+        }
+        (dst, src) => {
+            *dst = src;
+            Ok(())
         }
     }
-    Ok(())
 }
 
 /// `SERVERPANEL__PANEL__PORT=8123` → `{"panel":{"port":8123}}`.
@@ -449,7 +446,11 @@ fn apply_env_overrides(dst: &mut serde_json::Value, vars: &[(String, String)]) {
         // Owned segments, because `SERVERPANEL__X__Y` is case-insensitive for the
         // path but the JSON keys are lowercase, so the walk cannot borrow `rest`.
         let path: Vec<String> = rest.split("__").map(|s| s.to_ascii_lowercase()).collect();
-        let mut node = dst;
+        // Reborrow, don't move: `let mut node = dst;` takes the `&mut` out of the
+        // parameter, so the *second* iteration of the env-var loop has nothing left
+        // to walk. This is what `E0382: value moved here, in previous iteration of
+        // loop` points at — the note names the loop, not the line that moves first.
+        let mut node: &mut serde_json::Value = &mut *dst;
         for (i, seg) in path.iter().enumerate() {
             let last = i + 1 == path.len();
             if !node.is_object() {
