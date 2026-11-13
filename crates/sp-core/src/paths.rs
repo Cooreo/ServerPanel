@@ -553,10 +553,12 @@ mod tests {
             std::fs::create_dir_all(sb.root().join("mods")).unwrap();
             std::os::unix::fs::symlink(&target, &link).unwrap();
             // resolve() may or may not allow reading; resolve_for_write must not.
-            let write_err = sb.resolve_for_write(
-                sb.relativize(&link)
-                    .unwrap_or_else(|_| "mods/evil.jar".into()),
-            );
+            // A named binding, because `resolve_for_write` takes `&str` and the
+            // `String` this fallback produces has no deref path through a call chain.
+            let rel = sb
+                .relativize(&link)
+                .unwrap_or_else(|_| "mods/evil.jar".to_string());
+            let write_err = sb.resolve_for_write(&rel);
             assert!(write_err.is_err(), "must refuse writing through a symlink");
         }
     }
@@ -584,7 +586,7 @@ mod tests {
         assert_eq!(sanitize_slug("Survival Spawn!"), "survival-spawn");
         assert_eq!(sanitize_slug("  "), "server");
         assert_eq!(sanitize_slug("测试"), "server", "non-ascii drops out");
-        assert_eq!(sanitize_slug("A".repeat(200)).len(), 40);
+        assert_eq!(sanitize_slug(&"A".repeat(200)).len(), 40);
         assert_eq!(sanitize_slug("my__server--x"), "my-server-x");
     }
 

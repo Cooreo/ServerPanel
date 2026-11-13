@@ -414,26 +414,29 @@ fn toml_to_json(v: toml::Value) -> serde_json::Value {
 
 /// Deep-merge `src` into `dst`, reporting the source path on error.
 fn merge(dst: &mut serde_json::Value, src: serde_json::Value, at: &str) -> Result<(), CoreError> {
-    match (dst, src) {
-        (serde_json::Value::Object(dst_map), serde_json::Value::Object(src_map)) => {
-            for (k, v) in src_map {
-                match dst_map.get_mut(&k) {
-                    Some(existing) => merge(existing, v, &format!("{at}.{k}"))?,
-                    None => {
-                        return Err(CoreError::Validation {
-                            field: format!("{at}.{k}"),
-                            reason: "unknown configuration key".into(),
-                        })
-                    }
-                }
+    // Match the *shapes* before destructuring. `match (dst, src)` moves the
+    // `&mut Value` into the tuple, and the loop below needs `dst` again on the next
+    // iteration — "use of moved value: `dst`".
+    if !(dst.is_object() && src.is_object()) {
+        *dst = src;
+        return Ok(());
+    }
+    let serde_json::Value::Object(src_map) = src else {
+        unreachable!("both sides were just checked to be objects")
+    };
+    let dst_map = dst.as_object_mut().expect("checked above");
+    for (k, v) in src_map {
+        match dst_map.get_mut(&k) {
+            Some(existing) => merge(existing, v, &format!("{at}.{k}"))?,
+            None => {
+                return Err(CoreError::Validation {
+                    field: format!("{at}.{k}"),
+                    reason: "unknown configuration key".into(),
+                })
             }
-            Ok(())
-        }
-        (dst, src) => {
-            *dst = src;
-            Ok(())
         }
     }
+    Ok(())
 }
 
 /// `SERVERPANEL__PANEL__PORT=8123` → `{"panel":{"port":8123}}`.

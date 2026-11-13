@@ -289,7 +289,7 @@ mod tests {
         r.complete("done");
 
         let mut msgs = Vec::new();
-        while let Ok(ev) = tokio::time::timeout(Duration::from_millis(30), sub.recv()).await {
+        while let Ok(Ok(ev)) = tokio::time::timeout(Duration::from_millis(30), sub.recv()).await {
             if let PanelEvent::Progress(p) = ev.event {
                 msgs.push(p);
             }
