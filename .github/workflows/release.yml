@@ -157,7 +157,7 @@ jobs:
         run: npm ci
       # tauri-action runs `npm run build`, the Rust release build and the bundler,
       # then uploads every artifact it produced to the given release.
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Optional: without these, the Windows bundles ship unsigned and the
