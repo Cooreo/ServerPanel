@@ -22,7 +22,7 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
       prerelease: ${{ steps.ver.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: ver
@@ -78,7 +78,7 @@ jobs:
     outputs:
       release_id: ${{ steps.create.outputs.id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Extract this version's changelog section
         id: notes
         run: |
@@ -143,7 +143,7 @@ jobs:
             runs_on: macos-latest
             args: "--target universal-apple-darwin"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ contains(matrix.label, 'macOS') && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
