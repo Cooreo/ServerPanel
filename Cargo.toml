@@ -59,7 +59,7 @@ totp-rs = { version = "5", features = ["gen_secret"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1"
-zstd = "0.13"
+zstd = "0.14"
 
 # --- infra ---
 tracing = "0.1"
