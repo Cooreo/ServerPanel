@@ -66,7 +66,8 @@ impl Cron {
         let hours = parse_field(rest[1], 0, 23, &[]).map_err(|e| e.field("hours"))?;
         let dom_star = is_star(rest[2]);
         let dow_star = is_star(rest[4]);
-        let days_of_month = parse_field(rest[2], 1, 31, &[]).map_err(|e| e.field("day-of-month"))?;
+        let days_of_month =
+            parse_field(rest[2], 1, 31, &[]).map_err(|e| e.field("day-of-month"))?;
         let months = parse_field(rest[3], 1, 12, &MONTH_NAMES).map_err(|e| e.field("month"))?;
         let mut days_of_week =
             parse_field(rest[4], 0, 7, &DOW_NAMES).map_err(|e| e.field("day-of-week"))?;
@@ -255,45 +256,65 @@ fn lookup_name(tok: &str, names: &[(&str, u32)]) -> Option<u32> {
 fn parse_value(tok: &str, min: u32, max: u32, names: &[(&str, u32)]) -> Result<u32, FieldError> {
     let t = tok.trim();
     if t.is_empty() {
-        return Err(FieldError { reason: "empty value".into() });
+        return Err(FieldError {
+            reason: "empty value".into(),
+        });
     }
     let v = if let Some(n) = lookup_name(t, names) {
         n
     } else {
         match t.parse::<u32>() {
             Ok(v) => v,
-            Err(_) => return Err(FieldError { reason: format!("`{t}` is not a number or name") }),
+            Err(_) => {
+                return Err(FieldError {
+                    reason: format!("`{t}` is not a number or name"),
+                })
+            }
         }
     };
     if v < min || v > max {
-        return Err(FieldError { reason: format!("`{t}` out of range {min}..={max}") });
+        return Err(FieldError {
+            reason: format!("`{t}` out of range {min}..={max}"),
+        });
     }
     Ok(v)
 }
 
-fn parse_field(field: &str, min: u32, max: u32, names: &[(&str, u32)]) -> Result<Vec<u32>, FieldError> {
+fn parse_field(
+    field: &str,
+    min: u32,
+    max: u32,
+    names: &[(&str, u32)],
+) -> Result<Vec<u32>, FieldError> {
     let field = field.trim();
     if field.is_empty() {
-        return Err(FieldError { reason: "empty field".into() });
+        return Err(FieldError {
+            reason: "empty field".into(),
+        });
     }
     if max - min >= 63 {
-        return Err(FieldError { reason: "field too wide".into() });
+        return Err(FieldError {
+            reason: "field too wide".into(),
+        });
     }
     let mut mask: u64 = 0;
     for item in field.split(',') {
         let item = item.trim();
         if item.is_empty() {
-            return Err(FieldError { reason: "empty list item".into() });
+            return Err(FieldError {
+                reason: "empty list item".into(),
+            });
         }
         // Split `spec/step` off the end.
         let (spec, step) = match item.split_once('/') {
             Some((s, step)) => {
-                let step_u: u32 = step
-                    .trim()
-                    .parse()
-                    .map_err(|_| FieldError { reason: format!("bad step `/{}`", step.trim()) })?;
+                let step_u: u32 = step.trim().parse().map_err(|_| FieldError {
+                    reason: format!("bad step `/{}`", step.trim()),
+                })?;
                 if step_u == 0 {
-                    return Err(FieldError { reason: "step must be >= 1".into() });
+                    return Err(FieldError {
+                        reason: "step must be >= 1".into(),
+                    });
                 }
                 (s.trim(), step_u)
             }
@@ -324,7 +345,9 @@ fn parse_field(field: &str, min: u32, max: u32, names: &[(&str, u32)]) -> Result
         };
         for (lo, hi) in ranges {
             if lo > hi {
-                return Err(FieldError { reason: format!("`{item}` matches nothing") });
+                return Err(FieldError {
+                    reason: format!("`{item}` matches nothing"),
+                });
             }
             let mut v = lo;
             while v <= hi {
@@ -338,7 +361,9 @@ fn parse_field(field: &str, min: u32, max: u32, names: &[(&str, u32)]) -> Result
     }
     let out: Vec<u32> = (min..=max).filter(|v| mask & (1 << v) != 0).collect();
     if out.is_empty() {
-        return Err(FieldError { reason: format!("`{field}` matches nothing") });
+        return Err(FieldError {
+            reason: format!("`{field}` matches nothing"),
+        });
     }
     Ok(out)
 }
@@ -346,9 +371,7 @@ fn parse_field(field: &str, min: u32, max: u32, names: &[(&str, u32)]) -> Result
 /// Convenience used by the API when the UI wants "next run" for a task.
 pub fn next_run(expr: &str) -> Result<Option<i64>, CoreError> {
     let cron = Cron::parse(expr)?;
-    Ok(cron
-        .next_after(Utc::now())
-        .map(|t| t.timestamp_millis()))
+    Ok(cron.next_after(Utc::now()).map(|t| t.timestamp_millis()))
 }
 
 #[cfg(test)]
@@ -367,33 +390,69 @@ mod tests {
     }
 
     fn next(expr: &str, from: &str) -> String {
-        fmt(Cron::parse(expr).unwrap().next_after(dt(from)).expect("a next run"))
+        fmt(Cron::parse(expr)
+            .unwrap()
+            .next_after(dt(from))
+            .expect("a next run"))
     }
 
     #[test]
     fn daily_at_fixed_time() {
-        assert_eq!(next("0 4 * * *", "2026-01-01 00:00:00"), "2026-01-01 04:00:00");
-        assert_eq!(next("0 4 * * *", "2026-01-01 04:00:00"), "2026-01-02 04:00:00");
-        assert_eq!(next("0 4 * * *", "2026-01-01 03:59:59"), "2026-01-01 04:00:00");
+        assert_eq!(
+            next("0 4 * * *", "2026-01-01 00:00:00"),
+            "2026-01-01 04:00:00"
+        );
+        assert_eq!(
+            next("0 4 * * *", "2026-01-01 04:00:00"),
+            "2026-01-02 04:00:00"
+        );
+        assert_eq!(
+            next("0 4 * * *", "2026-01-01 03:59:59"),
+            "2026-01-01 04:00:00"
+        );
     }
 
     #[test]
     fn step_lists() {
-        assert_eq!(next("*/15 * * * *", "2026-01-01 10:07:00"), "2026-01-01 10:15:00");
-        assert_eq!(next("*/15 * * * *", "2026-01-01 10:50:00"), "2026-01-01 11:00:00");
-        assert_eq!(next("5,35 * * * *", "2026-01-01 10:06:00"), "2026-01-01 10:35:00");
-        assert_eq!(next("0 0-6/2 * * *", "2026-01-01 05:00:00"), "2026-01-01 06:00:00");
+        assert_eq!(
+            next("*/15 * * * *", "2026-01-01 10:07:00"),
+            "2026-01-01 10:15:00"
+        );
+        assert_eq!(
+            next("*/15 * * * *", "2026-01-01 10:50:00"),
+            "2026-01-01 11:00:00"
+        );
+        assert_eq!(
+            next("5,35 * * * *", "2026-01-01 10:06:00"),
+            "2026-01-01 10:35:00"
+        );
+        assert_eq!(
+            next("0 0-6/2 * * *", "2026-01-01 05:00:00"),
+            "2026-01-01 06:00:00"
+        );
     }
 
     #[test]
     fn weekday_rules() {
         // 2026-01-07 is a Wednesday; the next Monday is the 12th.
-        assert_eq!(next("0 0 * * 1", "2026-01-07 12:00:00"), "2026-01-12 00:00:00");
+        assert_eq!(
+            next("0 0 * * 1", "2026-01-07 12:00:00"),
+            "2026-01-12 00:00:00"
+        );
         // 2026-01-10 is a Saturday → skip the weekend.
-        assert_eq!(next("30 9 * * 1-5", "2026-01-10 00:00:00"), "2026-01-12 09:30:00");
+        assert_eq!(
+            next("30 9 * * 1-5", "2026-01-10 00:00:00"),
+            "2026-01-12 09:30:00"
+        );
         // 7 must also mean Sunday.
-        assert_eq!(next("0 8 * * 7", "2026-01-05 00:00:00"), "2026-01-11 08:00:00");
-        assert_eq!(next("0 8 * * 0", "2026-01-05 00:00:00"), "2026-01-11 08:00:00");
+        assert_eq!(
+            next("0 8 * * 7", "2026-01-05 00:00:00"),
+            "2026-01-11 08:00:00"
+        );
+        assert_eq!(
+            next("0 8 * * 0", "2026-01-05 00:00:00"),
+            "2026-01-11 08:00:00"
+        );
     }
 
     #[test]
@@ -402,9 +461,20 @@ mod tests {
         let c = Cron::parse("0 22-2 * * *").unwrap();
         assert_eq!(c.hours, vec![0, 1, 2, 22, 23]);
         let c = Cron::parse("0 0 * * fri-mon").unwrap();
-        assert_eq!(c.days_of_week, vec![0, 1, 5, 6], "fri(5), sat(6), sun(0), mon(1)");
+        assert_eq!(
+            c.days_of_week,
+            vec![0, 1, 5, 6],
+            "fri(5), sat(6), sun(0), mon(1)"
+        );
         // 2026-01-02 Fri, 01-03 Sat, 01-04 Sun, 01-05 Mon all match; Tue does not.
-        for (d, want) in [(2, true), (3, true), (4, true), (5, true), (6, false), (7, false)] {
+        for (d, want) in [
+            (2, true),
+            (3, true),
+            (4, true),
+            (5, true),
+            (6, false),
+            (7, false),
+        ] {
             let date = NaiveDate::from_ymd_opt(2026, 1, d).unwrap();
             assert_eq!(c.day_matches(date), want, "2026-01-{d:02}");
         }
@@ -414,8 +484,14 @@ mod tests {
     fn dom_or_dow_semantics() {
         // Restricted both → union: the 13th OR any Friday.
         let c = Cron::parse("0 0 13 * 5").unwrap();
-        assert!(c.day_matches(NaiveDate::from_ymd_opt(2026, 1, 13).unwrap()), "13th is a Tuesday");
-        assert!(c.day_matches(NaiveDate::from_ymd_opt(2026, 1, 2).unwrap()), "2 Jan 2026 is a Friday");
+        assert!(
+            c.day_matches(NaiveDate::from_ymd_opt(2026, 1, 13).unwrap()),
+            "13th is a Tuesday"
+        );
+        assert!(
+            c.day_matches(NaiveDate::from_ymd_opt(2026, 1, 2).unwrap()),
+            "2 Jan 2026 is a Friday"
+        );
         assert!(!c.day_matches(NaiveDate::from_ymd_opt(2026, 1, 14).unwrap()));
         // Restricted DoM only → DoW ignored.
         let only_dom = Cron::parse("0 0 15 * *").unwrap();
@@ -426,7 +502,10 @@ mod tests {
     #[test]
     fn months_and_leap_day() {
         // 2026-02-29 does not exist; the next one is 2028.
-        assert_eq!(next("0 0 29 2 *", "2026-03-01 00:00:00"), "2028-02-29 00:00:00");
+        assert_eq!(
+            next("0 0 29 2 *", "2026-03-01 00:00:00"),
+            "2028-02-29 00:00:00"
+        );
         assert_eq!(next("0 0 1 mar", "2026-06-01 00:00:00").len(), 19);
     }
 
@@ -439,14 +518,26 @@ mod tests {
 
     #[test]
     fn seconds_field_accepted_as_sixth() {
-        assert_eq!(next("30 * * * * *", "2026-01-01 10:00:00"), "2026-01-01 10:00:30");
-        assert_eq!(next("*/20 * * * * *", "2026-01-01 10:00:25"), "2026-01-01 10:00:40");
+        assert_eq!(
+            next("30 * * * * *", "2026-01-01 10:00:00"),
+            "2026-01-01 10:00:30"
+        );
+        assert_eq!(
+            next("*/20 * * * * *", "2026-01-01 10:00:25"),
+            "2026-01-01 10:00:40"
+        );
     }
 
     #[test]
     fn names_are_accepted_case_insensitively() {
-        assert_eq!(Cron::parse("0 0 * jan-mar MON").unwrap().months, vec![1, 2, 3]);
-        assert_eq!(Cron::parse("0 0 * Jan * sun,Sat").unwrap().days_of_week, vec![0, 6]);
+        assert_eq!(
+            Cron::parse("0 0 * jan-mar MON").unwrap().months,
+            vec![1, 2, 3]
+        );
+        assert_eq!(
+            Cron::parse("0 0 * Jan * sun,Sat").unwrap().days_of_week,
+            vec![0, 6]
+        );
         assert!(Cron::parse("0 0 * foo * *").is_err());
     }
 
@@ -458,7 +549,13 @@ mod tests {
         assert!(msg.contains("out of range 0..=59"), "{msg}");
         let e = Cron::parse("* * * *").unwrap_err();
         assert!(e.to_string().contains("expected 5 or 6 fields"), "{e}");
-        for bad in ["* * * * * *", "0 0 * * 8", "*/0 * * * *", "a * * * *", "1-2-3 * * * *"] {
+        for bad in [
+            "* * * * * *",
+            "0 0 * * 8",
+            "*/0 * * * *",
+            "a * * * *",
+            "1-2-3 * * * *",
+        ] {
             assert!(Cron::parse(bad).is_err(), "{bad} should fail");
         }
     }
@@ -481,12 +578,21 @@ mod tests {
 
     #[test]
     fn question_mark_is_a_star() {
-        assert_eq!(Cron::parse("0 4 * * ?").unwrap(), Cron::parse("0 4 * * *").unwrap());
+        assert_eq!(
+            Cron::parse("0 4 * * ?").unwrap(),
+            Cron::parse("0 4 * * *").unwrap()
+        );
     }
 
     #[test]
     fn describe_is_roughly_right() {
-        assert!(Cron::parse("0 4 * * *").unwrap().describe().contains("04:00"));
-        assert!(Cron::parse("*/5 * * * *").unwrap().describe().contains("every day"));
+        assert!(Cron::parse("0 4 * * *")
+            .unwrap()
+            .describe()
+            .contains("04:00"));
+        assert!(Cron::parse("*/5 * * * *")
+            .unwrap()
+            .describe()
+            .contains("every day"));
     }
 }

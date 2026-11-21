@@ -48,10 +48,19 @@ pub struct ParsedLine {
 /// matters because these run for every single console line.
 macro_rules! pattern {
     ($name:ident, $re:expr) => {
-        static $name: OnceLock<Regex> = OnceLock::new();
         #[inline]
+        // The generated *function* keeps the pattern's SCREAMING_CASE name (it used to
+        // be a `static`, where that is idiomatic), so the lint is silenced here rather
+        // than at all eleven call sites.
+        #[allow(non_snake_case)]
         fn $name() -> &'static Regex {
-            $name.get_or_init(|| {
+            // The `static` lives *inside* the fn. A `static RE_TPS` and an `fn RE_TPS`
+            // share the value namespace, which is what turned all eleven patterns into
+            // "defined multiple times" — and then every `RE_TPS()` call into E0618
+            // ("expected function, found OnceLock<Regex>"). Same process-lifetime
+            // lazy-init, no name clash, and the pattern still reads at its use site.
+            static RE: OnceLock<Regex> = OnceLock::new();
+            RE.get_or_init(|| {
                 Regex::new($re).unwrap_or_else(|e| panic!("invalid pattern {:?}: {e}", $re))
             })
         }
@@ -59,16 +68,31 @@ macro_rules! pattern {
 }
 
 pattern!(RE_TPS, r"TPS[^\d-]*((?:\d+\.\d+|\d+)(?:\s*,\s*\d+\.\d+)*)");
-pattern!(RE_MSPT, r"MSPT[^\d-]*((?:\d+\.\d+|\d+)(?:\s*,\s*\d+\.\d+)*)");
-pattern!(RE_PLAYERS, r"There are (\d+) of a max(?:imum)? of (\d+) players online");
+pattern!(
+    RE_MSPT,
+    r"MSPT[^\d-]*((?:\d+\.\d+|\d+)(?:\s*,\s*\d+\.\d+)*)"
+);
+pattern!(
+    RE_PLAYERS,
+    r"There are (\d+) of a max(?:imum)? of (\d+) players online"
+);
 pattern!(RE_LOST, r"([A-Za-z0-9_]{1,16}) lost connection");
-pattern!(RE_JOIN, r"([A-Za-z0-9_]{1,16}) (?:joined the game|has joined the game|entered the game)");
+pattern!(
+    RE_JOIN,
+    r"([A-Za-z0-9_]{1,16}) (?:joined the game|has joined the game|entered the game)"
+);
 pattern!(RE_LEAVE, r"([A-Za-z0-9_]{1,16}) left the game");
 pattern!(RE_CRASH_SAVED, r"This crash report has been saved to");
 pattern!(RE_DONE, r"Done \([\d.,]+\s*s\w*\)!");
-pattern!(RE_LAG, r"Can't keep up!.*?Running (\d+)ms or (\d+) ticks behind");
+pattern!(
+    RE_LAG,
+    r"Can't keep up!.*?Running (\d+)ms or (\d+) ticks behind"
+);
 pattern!(RE_RELOAD, r"Reloading(?: \w+)?|Reload complete");
-pattern!(RE_STOP, r"Stopping server|Closing Minecraft Server|stopping\.\.\.");
+pattern!(
+    RE_STOP,
+    r"Stopping server|Closing Minecraft Server|stopping\.\.\."
+);
 
 /// Three floats from a `19.98, 19.99, 20.0` capture group.
 fn triple(text: &str) -> Option<[f32; 3]> {
@@ -102,7 +126,9 @@ pub fn parse(plain: &str) -> ParsedLine {
         out.mspt = triple(&caps[1]);
     }
     if let Some(caps) = RE_PLAYERS().captures(plain) {
-        if let (Some(online), Some(max)) = (caps[1].parse::<u32>().ok(), caps[2].parse::<u32>().ok()) {
+        if let (Some(online), Some(max)) =
+            (caps[1].parse::<u32>().ok(), caps[2].parse::<u32>().ok())
+        {
             out.players = Some((online, max));
         }
     }
@@ -129,7 +155,8 @@ pub fn parse(plain: &str) -> ParsedLine {
         out.event = Some(ConsoleEvent::Crash);
         return out;
     }
-    if plain.contains("java.lang.OutOfMemoryError") || plain.contains("GC overhead limit exceeded") {
+    if plain.contains("java.lang.OutOfMemoryError") || plain.contains("GC overhead limit exceeded")
+    {
         out.event = Some(ConsoleEvent::OutOfMemory);
         return out;
     }
@@ -162,11 +189,17 @@ pub fn parse(plain: &str) -> ParsedLine {
         out.event = Some(ConsoleEvent::Reload);
         return out;
     }
-    if plain.contains("for disconnection") || plain.contains("kicked ") || plain.contains("Kicking ") {
+    if plain.contains("for disconnection")
+        || plain.contains("kicked ")
+        || plain.contains("Kicking ")
+    {
         out.event = Some(ConsoleEvent::Kick);
         return out;
     }
-    if plain.contains("Whitelisting ") || plain.contains("Un-whitelisting ") || plain.contains("Made ") && plain.contains(" op") {
+    if plain.contains("Whitelisting ")
+        || plain.contains("Un-whitelisting ")
+        || plain.contains("Made ") && plain.contains(" op")
+    {
         out.event = Some(ConsoleEvent::WhitelistChange);
         return out;
     }
@@ -282,7 +315,10 @@ mod tests {
             Some(ConsoleEvent::SaveStart)
         );
         assert_eq!(
-            parse("[Server thread/INFO]: ThreadedAnvilChunkStorage (DIM-1): All dimensions are saved").event,
+            parse(
+                "[Server thread/INFO]: ThreadedAnvilChunkStorage (DIM-1): All dimensions are saved"
+            )
+            .event,
             Some(ConsoleEvent::SaveDone)
         );
         let p = parse("[Server thread/WARN]: Can't keep up! Is the server overloaded? Running 3545ms or 70 ticks behind");

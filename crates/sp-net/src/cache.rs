@@ -7,6 +7,7 @@
 
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -16,13 +17,15 @@ struct Entry {
     status: u16,
 }
 
+/// Cloning a cache has to share entries and counters, so the interior state is `Arc`d.
+/// Deriving `Clone` over a bare `Mutex` and two atomics was never going to be implemented.
 #[derive(Debug, Clone)]
 pub struct TtlCache {
-    inner: Mutex<HashMap<String, Entry>>,
+    inner: Arc<Mutex<HashMap<String, Entry>>>,
     ttl: Duration,
     max_entries: usize,
-    hits: std::sync::atomic::AtomicU64,
-    misses: std::sync::atomic::AtomicU64,
+    hits: Arc<std::sync::atomic::AtomicU64>,
+    misses: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl TtlCache {
@@ -32,11 +35,11 @@ impl TtlCache {
 
     pub fn with_capacity(ttl: Duration, max_entries: usize) -> Self {
         Self {
-            inner: Mutex::new(HashMap::new()),
+            inner: Arc::new(Mutex::new(HashMap::new())),
             ttl,
             max_entries: max_entries.max(8),
-            hits: std::sync::atomic::AtomicU64::new(0),
-            misses: std::sync::atomic::AtomicU64::new(0),
+            hits: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            misses: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -45,20 +48,26 @@ impl TtlCache {
     }
 
     /// Fresh value for `key`, if any.
+    ///
+    /// Only a cached `200` counts as a hit. `insert_status` records 404s and 5xx on
+    /// purpose (so a caller stops re-asking for a project that does not exist), but
+    /// handing that body back through `get` would turn a recorded miss into a success.
     pub fn get(&self, key: &str) -> Option<String> {
         let mut map = self.inner.lock();
         match map.get(key) {
-            Some(e) if e.at.elapsed() < self.ttl => {
+            Some(e) if e.status == 200 && e.at.elapsed() < self.ttl => {
                 self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 Some(e.body.clone())
             }
             Some(_) => {
                 map.remove(key);
-                self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.misses
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 None
             }
             None => {
-                self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.misses
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 None
             }
         }
@@ -70,7 +79,7 @@ impl TtlCache {
         let map = self.inner.lock();
         map.get(key).and_then(|e| {
             let age = e.at.elapsed();
-            (age < max_stale).then(|| (e.body.clone(), age >= self.ttl))
+            (e.status == 200 && age < max_stale).then(|| (e.body.clone(), age >= self.ttl))
         })
     }
 
@@ -83,15 +92,18 @@ impl TtlCache {
         let mut map = self.inner.lock();
         if map.len() >= self.max_entries {
             // Evict the oldest entry; good enough and O(n) on a bounded map.
-            if let Some(oldest) = map
-                .iter()
-                .min_by_key(|(_, e)| e.at)
-                .map(|(k, _)| k.clone())
-            {
+            if let Some(oldest) = map.iter().min_by_key(|(_, e)| e.at).map(|(k, _)| k.clone()) {
                 map.remove(&oldest);
             }
         }
-        map.insert(key, Entry { at: Instant::now(), body: body.into(), status });
+        map.insert(
+            key,
+            Entry {
+                at: Instant::now(),
+                body: body.into(),
+                status,
+            },
+        );
     }
 
     pub fn invalidate_prefix(&self, prefix: &str) -> usize {
@@ -211,7 +223,9 @@ mod tests {
         let c = TtlCache::with_capacity(Duration::from_millis(1), 16);
         c.insert("versions", "[1,2]");
         std::thread::sleep(Duration::from_millis(10));
-        let (body, stale) = c.get_stale_ok("versions", Duration::from_secs(60)).expect("stale hit");
+        let (body, stale) = c
+            .get_stale_ok("versions", Duration::from_secs(60))
+            .expect("stale hit");
         assert!(stale, "past TTL but within max_stale it is served as stale");
         assert_eq!(body, "[1,2]");
         assert!(c.get_stale_ok("versions", Duration::ZERO).is_none());
@@ -242,22 +256,44 @@ mod tests {
     #[test]
     fn rate_limit_headers_are_parsed_case_insensitively() {
         let mut h = reqwest::header::HeaderMap::new();
-        h.insert("x-ratelimit-limit", "100".parse().unwrap());
-        h.insert("X-RateLimit-Remaining".parse().unwrap(), "3".parse().unwrap());
-        h.insert("x-ratelimit-reset", "99999999999".parse().unwrap());
+        h.insert(
+            "x-ratelimit-limit",
+            "100".parse::<reqwest::header::HeaderValue>().unwrap(),
+        );
+        h.insert(
+            "X-RateLimit-Remaining"
+                .parse::<reqwest::header::HeaderName>()
+                .unwrap(),
+            "3".parse::<reqwest::header::HeaderValue>().unwrap(),
+        );
+        h.insert(
+            "x-ratelimit-reset",
+            "99999999999"
+                .parse::<reqwest::header::HeaderValue>()
+                .unwrap(),
+        );
         let rl = RateLimit::from_headers(&h);
         assert_eq!(rl.limit, Some(100));
         assert_eq!(rl.remaining, Some(3));
         assert_eq!(rl.reset_at_epoch, Some(99_999_999_999));
         assert!(!rl.is_exhausted());
-        assert!(rl.retry_in().is_some(), "far-future reset is clamped, not dropped");
+        assert!(
+            rl.retry_in().is_some(),
+            "far-future reset is clamped, not dropped"
+        );
 
         let mut h2 = reqwest::header::HeaderMap::new();
-        h2.insert("x-rate-limit-remaining", "0".parse().unwrap());
+        h2.insert(
+            "x-rate-limit-remaining",
+            "0".parse::<reqwest::header::HeaderValue>().unwrap(),
+        );
         let rl2 = RateLimit::from_headers(&h2);
         assert!(rl2.is_exhausted());
         assert_eq!(rl2.retry_in(), None, "no reset header means no advice");
-        assert_eq!(RateLimit::from_headers(&Default::default()), RateLimit::default());
+        assert_eq!(
+            RateLimit::from_headers(&Default::default()),
+            RateLimit::default()
+        );
     }
 
     #[test]

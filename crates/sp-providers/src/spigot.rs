@@ -64,9 +64,7 @@ impl BuildPrereqs {
             jdk: probe_version(&["javac", "-version"], |out| {
                 out.lines().next().unwrap_or("").to_string()
             }),
-            git: probe_version(&["git", "--version"], |out| {
-                out.trim().to_string()
-            }),
+            git: probe_version(&["git", "--version"], |out| out.trim().to_string()),
         }
     }
 
@@ -83,10 +81,7 @@ fn probe_version<F>(args: &[&str], parse: F) -> Option<String>
 where
     F: FnOnce(String) -> String,
 {
-    let out = Command::new(args[0])
-        .args(&args[1..])
-        .output()
-        .ok()?;
+    let out = Command::new(args[0]).args(&args[1..]).output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -252,7 +247,11 @@ impl SpigotProvider {
             notes: vec![
                 "Compiling takes 5–20 minutes and needs ~1 GB of disk".to_string(),
                 "Progress streams into this server's console; the wizard stays open".to_string(),
-                format!("{} will be renamed to {}", self.target.produced_jar(rev), self.target.jar_name()),
+                format!(
+                    "{} will be renamed to {}",
+                    self.target.produced_jar(rev),
+                    self.target.jar_name()
+                ),
             ],
         })
     }
@@ -373,7 +372,10 @@ impl GeyserProvider {
 
     pub async fn latest_async(&self) -> Result<GhRelease, CoreError> {
         self.client
-            .get_json(&format!("/repos/{}/{}/releases/latest", self.owner, self.repo))
+            .get_json(&format!(
+                "/repos/{}/{}/releases/latest",
+                self.owner, self.repo
+            ))
             .await
     }
 
@@ -390,9 +392,24 @@ impl GeyserProvider {
             .filter(|a| a.name.to_ascii_lowercase().ends_with(".jar"))
             .filter(|a| {
                 let n = a.name.to_ascii_lowercase();
-                !["bukkit", "spigot", "velocity", "fabric", "forge", "neoforge", "nukkit", "sponge", "viabackwards", "viaversions", "common", "api", "bootstrap", "standalone"]
-                    .iter()
-                    .any(|skip| n.contains(skip))
+                ![
+                    "bukkit",
+                    "spigot",
+                    "velocity",
+                    "fabric",
+                    "forge",
+                    "neoforge",
+                    "nukkit",
+                    "sponge",
+                    "viabackwards",
+                    "viaversions",
+                    "common",
+                    "api",
+                    "bootstrap",
+                    "standalone",
+                ]
+                .iter()
+                .any(|skip| n.contains(skip))
             })
             .collect();
         candidates.sort_by_key(|a| {
@@ -424,7 +441,10 @@ impl Provider for GeyserProvider {
     async fn versions(&self, _mc_version: Option<&str>) -> Result<CatalogEntry, CoreError> {
         let releases = self
             .client
-            .get_json::<Vec<GhRelease>>(&format!("/repos/{}/{}/releases?per_page=15", self.owner, self.repo))
+            .get_json::<Vec<GhRelease>>(&format!(
+                "/repos/{}/{}/releases?per_page=15",
+                self.owner, self.repo
+            ))
             .await?;
         let versions = releases
             .into_iter()
@@ -440,10 +460,7 @@ impl Provider for GeyserProvider {
                         ReleaseChannel::Stable
                     },
                     build: None,
-                    released_at_ms: r
-                        .published_at
-                        .as_deref()
-                        .and_then(crate::mojang::parse_iso),
+                    released_at_ms: r.published_at.as_deref().and_then(crate::mojang::parse_iso),
                     java_major: Some(17),
                     downloads: vec![DownloadFile::new(
                         FileRole::ServerJar,
@@ -469,10 +486,14 @@ impl Provider for GeyserProvider {
 
     async fn plan(&self, sel: &VersionSelection) -> Result<InstallPlan, CoreError> {
         let release = match &sel.exact {
-            Some(tag) => self
-                .client
-                .get_json::<GhRelease>(&format!("/repos/{}/{}/releases/tags/{tag}", self.owner, self.repo))
-                .await?,
+            Some(tag) => {
+                self.client
+                    .get_json::<GhRelease>(&format!(
+                        "/repos/{}/{}/releases/tags/{tag}",
+                        self.owner, self.repo
+                    ))
+                    .await?
+            }
             None => self.latest_async().await?,
         };
         let asset = Self::pick_asset(&release).ok_or_else(|| CoreError::Upstream {
@@ -490,9 +511,16 @@ impl Provider for GeyserProvider {
                 id: release.tag_name.clone(),
                 display: format!("Geyser {}", release.tag_name),
                 mc_version: String::new(),
-                channel: if release.prerelease { ReleaseChannel::Beta } else { ReleaseChannel::Stable },
+                channel: if release.prerelease {
+                    ReleaseChannel::Beta
+                } else {
+                    ReleaseChannel::Stable
+                },
                 build: None,
-                released_at_ms: release.published_at.as_deref().and_then(crate::mojang::parse_iso),
+                released_at_ms: release
+                    .published_at
+                    .as_deref()
+                    .and_then(crate::mojang::parse_iso),
                 java_major: Some(17),
                 downloads: vec![],
                 unstable: release.prerelease,
@@ -511,10 +539,7 @@ impl Provider for GeyserProvider {
             jvm_args: Vec::new(),
             natives_dir: None,
             java_major: 17,
-            properties: BTreeMap::from([(
-                "bedrock-port".to_string(),
-                "19132".to_string(),
-            )]),
+            properties: BTreeMap::from([("bedrock-port".to_string(), "19132".to_string())]),
             installer: None,
             notes: vec![
                 "Geyser needs UDP 19132 open; the Java server it bridges to should have \
@@ -628,9 +653,15 @@ mod tests {
         let none = BuildPrereqs::default();
         assert!(!none.is_ready());
         assert_eq!(none.missing(), vec!["a JDK (javac)", "git"]);
-        let partial = BuildPrereqs { jdk: Some("javac 21".into()), git: None };
+        let partial = BuildPrereqs {
+            jdk: Some("javac 21".into()),
+            git: None,
+        };
         assert_eq!(partial.missing(), vec!["git"]);
-        let ok = BuildPrereqs { jdk: Some("javac 21".into()), git: Some("git version 2.43".into()) };
+        let ok = BuildPrereqs {
+            jdk: Some("javac 21".into()),
+            git: Some("git version 2.43".into()),
+        };
         assert!(ok.is_ready());
         assert!(ok.summary().contains("javac 21"));
         // Real detection must not panic on a machine with neither tool installed.
@@ -640,7 +671,10 @@ mod tests {
     #[test]
     fn only_versions_buildtools_understand_are_offered() {
         let v = SpigotProvider::supported(
-            ["1.7.10", "1.8.9", "1.12.2", "1.16.5", "1.21.4", "25w03a", "b1.8.1"].into_iter(),
+            [
+                "1.7.10", "1.8.9", "1.12.2", "1.16.5", "1.21.4", "25w03a", "b1.8.1",
+            ]
+            .into_iter(),
             8,
         );
         assert_eq!(v, vec!["1.8.9", "1.12.2", "1.16.5", "1.21.4"]);
@@ -649,10 +683,18 @@ mod tests {
 
     #[test]
     fn craftbukkit_and_spigot_produce_their_own_jar_names() {
-        assert_eq!(BuildTarget::Spigot.produced_jar("1.21.4"), "spigot-1.21.4.jar");
-        assert_eq!(BuildTarget::CraftBukkit.produced_jar("1.20.6"), "craftbukkit-1.20.6.jar");
+        assert_eq!(
+            BuildTarget::Spigot.produced_jar("1.21.4"),
+            "spigot-1.21.4.jar"
+        );
+        assert_eq!(
+            BuildTarget::CraftBukkit.produced_jar("1.20.6"),
+            "craftbukkit-1.20.6.jar"
+        );
         assert_eq!(BuildTarget::Spigot.args("1.21.4"), vec!["--rev", "1.21.4"]);
-        assert!(BuildTarget::CraftBukkit.args("1.21.4").contains(&"--tools".to_string()));
+        assert!(BuildTarget::CraftBukkit
+            .args("1.21.4")
+            .contains(&"--tools".to_string()));
         assert_eq!(BuildTarget::Spigot.jar_name(), "server.jar");
     }
 
@@ -660,13 +702,14 @@ mod tests {
     fn missing_jdk_is_an_actionable_error_not_a_download() {
         let cfg = RegistryConfig::default();
         let p = SpigotProvider::new(&cfg).unwrap();
-        let err = p
-            .plan_for("1.21.4", &BuildPrereqs::default())
-            .unwrap_err();
+        let err = p.plan_for("1.21.4", &BuildPrereqs::default()).unwrap_err();
         assert_eq!(err.code(), "invalid_state");
         let msg = err.to_string();
         assert!(msg.contains("JDK") && msg.contains("git"), "{msg}");
-        assert!(msg.contains("Paper"), "the error must point at the easier path");
+        assert!(
+            msg.contains("Paper"),
+            "the error must point at the easier path"
+        );
         let ready = BuildPrereqs {
             jdk: Some("javac 21".into()),
             git: Some("git 2.43".into()),
@@ -675,12 +718,18 @@ mod tests {
         assert_eq!(plan.provider, "spigot");
         assert_eq!(plan.files[0].dest, "BuildTools.jar");
         assert_eq!(plan.files[0].url, p.buildtools_url());
-        assert!(plan.files[0].unverified, "Jenkins artifacts have no checksum");
+        assert!(
+            plan.files[0].unverified,
+            "Jenkins artifacts have no checksum"
+        );
         let inst = plan.installer.unwrap();
         assert_eq!(inst.args, vec!["--rev".to_string(), "1.21.4".to_string()]);
         assert_eq!(inst.ok_exit_codes, vec![0]);
         assert_eq!(inst.expected_artifact.as_deref(), Some("spigot-1.21.4.jar"));
-        assert!(plan.notes.iter().any(|n| n.contains("renamed to server.jar")));
+        assert!(plan
+            .notes
+            .iter()
+            .any(|n| n.contains("renamed to server.jar")));
         assert_eq!(plan.java_major, 21);
     }
 
@@ -705,7 +754,10 @@ mod tests {
     async fn geyser_listing_and_plan_use_the_release_api() {
         let r = gh_release(&[("geyser-2.6.1.jar", 42)]);
         let mut routes = BTreeMap::new();
-        routes.insert("/repos/GeyserMC/Geyser/releases/latest", serde_json::to_string(&r).unwrap());
+        routes.insert(
+            "/repos/GeyserMC/Geyser/releases/latest",
+            serde_json::to_string(&r).unwrap(),
+        );
         routes.insert(
             "/repos/GeyserMC/Geyser/releases",
             format!("[{}]", serde_json::to_string(&r).unwrap()),
@@ -735,7 +787,10 @@ mod tests {
             assert_eq!(plan.files[0].dest, "server.jar");
             assert!(plan.files[0].unverified);
             assert_eq!(plan.java_major, 17);
-            assert_eq!(plan.properties.get("bedrock-port").map(String::as_str), Some("19132"));
+            assert_eq!(
+                plan.properties.get("bedrock-port").map(String::as_str),
+                Some("19132")
+            );
             assert!(plan.notes.iter().any(|n| n.contains("UDP 19132")));
             assert!(plan.notes.iter().any(|n| n.contains("no checksums")));
         }

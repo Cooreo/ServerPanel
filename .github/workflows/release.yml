@@ -1,0 +1,234 @@
+name: Release
+
+# Pushing a tag is the only way to publish. Nothing here runs on a normal push, so
+# the pipeline stays green while the desktop crate is still being built — and the
+# preflight job below explains *why* a too-early tag is rejected, instead of failing
+# inside a bundler three jobs later.
+on:
+  push:
+    tags: ["v*.*.*", "v*.*.*-*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      prerelease: ${{ steps.ver.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: ver
+        name: Tag vs manifest version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          # The workspace manifest is the single source of truth for the version;
+          # Cargo.lock, package.json and tauri.conf.json are checked against it.
+          manifest_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)"
+          echo "tag version:    $version"
+          echo "Cargo.toml:     $manifest_version"
+          if [ "$version" != "$manifest_version" ]; then
+            echo "::error::tag $tag does not match [workspace.package] version $manifest_version. Bump the manifest (scripts/release.sh does this consistently) and re-tag."
+            exit 1
+          fi
+          python3 - "$version" <<'PY'
+          import sys, json, pathlib
+          v = sys.argv[1]
+          # semver pre-release suffix decides whether GitHub marks it a pre-release
+          pre = 1 if ("-" in v) else 0
+          print(f"prerelease={'true' if pre else 'false'}")
+          PY
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+          test -f crates/sp-desktop/Cargo.toml || {
+            echo "::error::crates/sp-desktop is missing — a release must ship installers, not source only."
+            exit 1
+          }
+          test -f web/package.json || {
+            echo "::error::web/ is missing — the panel binary embeds the built UI (rust-embed) and would ship without it."
+            exit 1
+          }
+      - name: Verify the embedded frontend is the built one
+        run: |
+          set -euo pipefail
+          if [ -f web/dist/index.html ]; then
+            echo "web/dist present; the release build will regenerate it anyway"
+          fi
+      - name: Changelog must cover this version
+        run: |
+          set -euo pipefail
+          grep -q "^## \[v\?${GITHUB_REF_NAME#v}\]" CHANGELOG.md || {
+            echo "::error::CHANGELOG.md has no section for ${GITHUB_REF_NAME}. Release notes are generated from it."
+            exit 1
+          }
+
+  release-notes:
+    name: Draft release
+    needs: preflight
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract this version's changelog section
+        id: notes
+        run: |
+          set -euo pipefail
+          v="${{ needs.preflight.outputs.version }}"
+          python3 - "$v" > notes.md <<'PY'
+          import re, sys
+          want = sys.argv[1]
+          text = open('CHANGELOG.md', encoding='utf-8').read()
+          # Sections are `## [x.y.z] - YYYY-MM-DD`; grab until the next `## `.
+          m = re.search(rf"^## \[?v?{re.escape(want)}\]?.*?(?=^## )", text, re.M | re.S)
+          if not m:
+              # Never ship a release whose notes are empty: fall back to the commit log
+              # so there is at least something honest in the release body.
+              print(f"No CHANGELOG section for {want} — see the commit list.")
+              sys.exit(0)
+          body = m.group(0).rstrip()
+          # Drop the heading; the release title already carries the version.
+          print(re.sub(r"^## .*$\n", "", body, count=1, flags=re.M).strip())
+          PY
+      - name: Create the draft
+        id: create
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const version = '${{ needs.preflight.outputs.version }}';
+            const prerelease = '${{ needs.preflight.outputs.prerelease }}' === 'true';
+            const body = fs.readFileSync('notes.md', 'utf8');
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: `v${version}`,
+              name: `ServerPanel ${version}`,
+              body: body || 'Release notes unavailable — see the commits.',
+              draft: true,
+              prerelease,
+            });
+            core.setOutput('id', data.id);
+            core.info(`draft release ${data.html_url}`);
+
+  # One job per platform, each handing its bundles straight to the draft release.
+  # tauri-action installs the Linux system deps and signs nothing by itself:
+  # Windows signing is a separate step so a missing certificate degrades to an
+  # unsigned build with a loud warning rather than a failed release.
+  bundles:
+    name: ${{ matrix.label }}
+    needs: [preflight, release-notes]
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows first: it is the primary target for this panel.
+          - label: Windows (NSIS + MSI)
+            runs_on: windows-latest
+            args: "--target x86_64-pc-windows-msvc"
+          - label: Linux (AppImage + deb)
+            runs_on: ubuntu-22.04
+            args: "--target x86_64-unknown-linux-gnu"
+          - label: macOS (dmg, universal)
+            runs_on: macos-latest
+            args: "--target universal-apple-darwin"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ contains(matrix.label, 'macOS') && 'aarch64-apple-darwin,x86_64-apple-darwin' || 'x86_64-pc-windows-msvc' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      # tauri-action runs `npm run build`, the Rust release build and the bundler,
+      # then uploads every artifact it produced to the given release.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: without these, the Windows bundles ship unsigned and the
+          # release body says so.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: crates/sp-desktop
+          args: --release ${{ matrix.args }}
+          releaseId: ${{ needs.release-notes.outputs.release_id }}
+          includeUpdaterJson: false
+      - name: Also build the headless server binary
+        run: cargo build --release -p sp-server ${{ matrix.args }}
+      - name: Upload the server binary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const ext = '${{ matrix.label }}'.startsWith('Windows') ? '.exe' : '';
+            const triple = '${{ matrix.args }}'.replace('--target ', '');
+            const file = path.join('target', triple, 'release', `serverpanel-server${ext}`);
+            if (!fs.existsSync(file)) {
+              core.warning(`${file} was not built; skipping the headless binary upload`);
+              return;
+            }
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.release-notes.outputs.release_id }},
+              name: path.basename(file).replace('serverpanel-server', `serverpanel-server-${triple}`),
+              data: fs.readFileSync(file),
+            });
+
+  publish:
+    name: Publish
+    needs: [preflight, release-notes, bundles]
+    if: needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: List what the release contains
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const id = ${{ needs.release-notes.outputs.release_id }};
+            const { data: assets } = await github.rest.repos.listReleaseAssets({
+              owner: context.repo.owner, repo: context.repo.repo, release_id: id, per_page: 100,
+            });
+            core.info(`assets (${assets.length}):`);
+            for (const a of assets) core.info(`  ${a.name}  ${a.size} bytes`);
+            if (assets.length === 0) {
+              core.setFailed('no installer assets were produced — refusing to publish an empty release');
+              return;
+            }
+            const body = assets.some((a) => /\.(exe|msi)$/i.test(a.name))
+              ? '\n\n### Installers\n' + assets.map((a) => `- [${a.name}](${a.browser_download_url})`).join('\n')
+              : '\n\n> No Windows installer in this build; use the platform bundles listed below.';
+            const { data } = await github.rest.repos.getRelease({
+              owner: context.repo.owner, repo: context.repo.repo, release_id: id,
+            });
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner, repo: context.repo.repo, release_id: id,
+              body: (data.body || '') + body,
+            });
+      - name: Undraft
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.release-notes.outputs.release_id }},
+              draft: false,
+            });

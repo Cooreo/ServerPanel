@@ -13,7 +13,8 @@ pub struct Backups<'a> {
     pub(crate) db: &'a Db,
 }
 
-const COLS: &str = "id, server_id, destination_id, name, kind, format, state, object_key, size_bytes, \
+const COLS: &str =
+    "id, server_id, destination_id, name, kind, format, state, object_key, size_bytes, \
                     sha256, included_bytes, file_count, world_consistent, error, created_at_ms, \
                     completed_at_ms, restored_count, last_restored_at_ms";
 
@@ -48,7 +49,15 @@ impl<'a> Backups<'a> {
         self.db.pool()
     }
 
-    pub async fn create(&self, server_id: ServerId, name: &str, kind: BackupKind, format: BackupFormat, destination_id: &str, object_key: &str) -> DbResult<Backup> {
+    pub async fn create(
+        &self,
+        server_id: ServerId,
+        name: &str,
+        kind: BackupKind,
+        format: BackupFormat,
+        destination_id: &str,
+        object_key: &str,
+    ) -> DbResult<Backup> {
         let id = sqlx::query(
             "INSERT INTO backups (server_id, destination_id, name, kind, format, state, object_key, created_at_ms)
              VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)",
@@ -96,7 +105,12 @@ impl<'a> Backups<'a> {
         rows.iter().map(map).collect()
     }
 
-    pub async fn set_state(&self, id: BackupId, state: BackupState, error: Option<&str>) -> DbResult<()> {
+    pub async fn set_state(
+        &self,
+        id: BackupId,
+        state: BackupState,
+        error: Option<&str>,
+    ) -> DbResult<()> {
         let _ = sqlx::query("UPDATE backups SET state = ?, error = ? WHERE id = ?")
             .bind(codec::backup_state_to_str(state))
             .bind(error.map(str::to_string))
@@ -106,7 +120,15 @@ impl<'a> Backups<'a> {
         Ok(())
     }
 
-    pub async fn complete(&self, id: BackupId, size_bytes: u64, sha256: Option<&str>, included_bytes: u64, file_count: u32, world_consistent: bool) -> DbResult<Backup> {
+    pub async fn complete(
+        &self,
+        id: BackupId,
+        size_bytes: u64,
+        sha256: Option<&str>,
+        included_bytes: u64,
+        file_count: u32,
+        world_consistent: bool,
+    ) -> DbResult<Backup> {
         let _ = sqlx::query(
             "UPDATE backups SET state = 'completed', size_bytes = ?, sha256 = ?, included_bytes = ?,
                     file_count = ?, world_consistent = ?, completed_at_ms = ?, error = NULL WHERE id = ?",
@@ -154,19 +176,23 @@ impl<'a> Backups<'a> {
     }
 
     pub async fn count_for_server(&self, server_id: ServerId) -> DbResult<u32> {
-        Ok(sqlx::query("SELECT COUNT(*) AS n FROM backups WHERE server_id = ?")
-            .bind(server_id.get())
-            .fetch_one(self.pool())
-            .await?
-            .try_get::<i64, _>("n")? as u32)
+        Ok(
+            sqlx::query("SELECT COUNT(*) AS n FROM backups WHERE server_id = ?")
+                .bind(server_id.get())
+                .fetch_one(self.pool())
+                .await?
+                .try_get::<i64, _>("n")? as u32,
+        )
     }
 
     pub async fn total_size_bytes(&self) -> DbResult<u64> {
-        Ok(sqlx::query("SELECT COALESCE(SUM(size_bytes), 0) AS s FROM backups WHERE state = 'completed'")
-            .fetch_one(self.pool())
-            .await?
-            .try_get::<i64, _>("s")?
-            .max(0) as u64)
+        Ok(sqlx::query(
+            "SELECT COALESCE(SUM(size_bytes), 0) AS s FROM backups WHERE state = 'completed'",
+        )
+        .fetch_one(self.pool())
+        .await?
+        .try_get::<i64, _>("s")?
+        .max(0) as u64)
     }
 
     /// Rows left in a non-terminal state by a crash — the engine marks them failed
@@ -180,7 +206,12 @@ impl<'a> Backups<'a> {
 
     /// Retention: ids that should be deleted, newest-first ranked by `keep_last`
     /// and `keep_days`. Only `completed` backups are ever returned.
-    pub async fn retention_excess(&self, server_id: ServerId, keep_last: u32, keep_days: u32) -> DbResult<Vec<Backup>> {
+    pub async fn retention_excess(
+        &self,
+        server_id: ServerId,
+        keep_last: u32,
+        keep_days: u32,
+    ) -> DbResult<Vec<Backup>> {
         let cutoff = now_ms() - i64::from(keep_days.max(1)) * 86_400_000;
         let rows = sqlx::query(&format!(
             "SELECT {COLS} FROM backups WHERE server_id = ? AND state = 'completed' ORDER BY created_at_ms DESC, id DESC"
@@ -215,7 +246,9 @@ impl<'a> Backups<'a> {
         .bind(server_id.get())
         .fetch_optional(self.pool())
         .await?;
-        let Some(row) = row else { return Ok(BackupPolicy::default()) };
+        let Some(row) = row else {
+            return Ok(BackupPolicy::default());
+        };
         Ok(BackupPolicy {
             enabled: r::boolean(&row, "enabled")?,
             cron: r::text(&row, "cron")?,
@@ -293,40 +326,67 @@ impl<'a> Backups<'a> {
 mod tests {
     use super::*;
     use crate::db::{Db, DbPath};
-    use sp_core::model::{InstallState, ServerKind, ServerRuntimeConfig};
     use crate::repos::ServerDraft;
+    use sp_core::model::{InstallState, ServerKind, ServerRuntimeConfig};
     use std::path::PathBuf;
 
     async fn setup() -> (tempfile::TempDir, Db, ServerId) {
         let dir = tempfile::tempdir().unwrap();
-        let db = Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap();
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
         let mut config = ServerRuntimeConfig::default();
         config.server_dir = PathBuf::from("/tmp/sp-backup-test");
-        let s = db.servers().create(ServerDraft {
-            name: "b".into(),
-            kind: ServerKind::Paper,
-            mc_version: "1.21.4".into(),
-            build: String::new(),
-            server_dir: PathBuf::from("/tmp/sp-backup-test"),
-            config,
-            eula_accepted: true,
-            install_state: InstallState::Ready,
-            template_of: None,
-            tags: vec![],
-            position: None,
-        }).await.unwrap();
+        let s = db
+            .servers()
+            .create(ServerDraft {
+                name: "b".into(),
+                kind: ServerKind::Paper,
+                mc_version: "1.21.4".into(),
+                build: String::new(),
+                server_dir: PathBuf::from("/tmp/sp-backup-test"),
+                config,
+                eula_accepted: true,
+                install_state: InstallState::Ready,
+                template_of: None,
+                tags: vec![],
+                position: None,
+            })
+            .await
+            .unwrap();
         (dir, db, s.id)
     }
 
     #[tokio::test]
     async fn create_complete_and_list() {
         let (_t, db, sid) = setup().await;
-        let b = db.backups().create(sid, "pre-holiday", BackupKind::Manual, BackupFormat::TarZstd, "local", "s1/pre.tzst").await.unwrap();
+        let b = db
+            .backups()
+            .create(
+                sid,
+                "pre-holiday",
+                BackupKind::Manual,
+                BackupFormat::TarZstd,
+                "local",
+                "s1/pre.tzst",
+            )
+            .await
+            .unwrap();
         assert_eq!(b.state, BackupState::Queued);
         assert_eq!(b.format, BackupFormat::TarZstd);
-        db.backups().set_state(b.id, BackupState::Running, None).await.unwrap();
-        assert_eq!(db.backups().get(b.id).await.unwrap().state, BackupState::Running);
-        let done = db.backups().complete(b.id, 4096, Some("abc"), 9000, 42, true).await.unwrap();
+        db.backups()
+            .set_state(b.id, BackupState::Running, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            db.backups().get(b.id).await.unwrap().state,
+            BackupState::Running
+        );
+        let done = db
+            .backups()
+            .complete(b.id, 4096, Some("abc"), 9000, 42, true)
+            .await
+            .unwrap();
         assert_eq!(done.state, BackupState::Completed);
         assert_eq!(done.size_bytes, Some(4096));
         assert_eq!(done.file_count, 42);
@@ -334,7 +394,10 @@ mod tests {
         assert_eq!(done.sha256.as_deref(), Some("abc"));
         assert_eq!(db.backups().count_for_server(sid).await.unwrap(), 1);
         assert_eq!(db.backups().total_size_bytes().await.unwrap(), 4096);
-        assert_eq!(db.backups().list_for_server(sid, 10).await.unwrap().len(), 1);
+        assert_eq!(
+            db.backups().list_for_server(sid, 10).await.unwrap().len(),
+            1
+        );
         db.backups().mark_restored(b.id).await.unwrap();
         assert_eq!(db.backups().get(b.id).await.unwrap().restored_count, 1);
         db.backups().rename(b.id, "renamed").await.unwrap();
@@ -344,25 +407,74 @@ mod tests {
     #[tokio::test]
     async fn failures_and_reaping() {
         let (_t, db, sid) = setup().await;
-        let b = db.backups().create(sid, "x", BackupKind::Scheduled, BackupFormat::Zip, "local", "k").await.unwrap();
-        db.backups().set_state(b.id, BackupState::Failed, Some("disk full")).await.unwrap();
+        let b = db
+            .backups()
+            .create(
+                sid,
+                "x",
+                BackupKind::Scheduled,
+                BackupFormat::Zip,
+                "local",
+                "k",
+            )
+            .await
+            .unwrap();
+        db.backups()
+            .set_state(b.id, BackupState::Failed, Some("disk full"))
+            .await
+            .unwrap();
         let got = db.backups().get(b.id).await.unwrap();
         assert_eq!(got.error.as_deref(), Some("disk full"));
-        assert_eq!(db.backups().total_size_bytes().await.unwrap(), 0, "failed backups do not count");
+        assert_eq!(
+            db.backups().total_size_bytes().await.unwrap(),
+            0,
+            "failed backups do not count"
+        );
         assert_eq!(db.backups().reap_interrupted().await.unwrap(), 0);
 
-        let stuck = db.backups().create(sid, "y", BackupKind::Manual, BackupFormat::Zip, "local", "k2").await.unwrap();
-        db.backups().set_state(stuck.id, BackupState::Running, None).await.unwrap();
+        let stuck = db
+            .backups()
+            .create(
+                sid,
+                "y",
+                BackupKind::Manual,
+                BackupFormat::Zip,
+                "local",
+                "k2",
+            )
+            .await
+            .unwrap();
+        db.backups()
+            .set_state(stuck.id, BackupState::Running, None)
+            .await
+            .unwrap();
         assert_eq!(db.backups().reap_interrupted().await.unwrap(), 1);
-        assert_eq!(db.backups().get(stuck.id).await.unwrap().error.as_deref(), Some("interrupted by panel restart"));
+        assert_eq!(
+            db.backups().get(stuck.id).await.unwrap().error.as_deref(),
+            Some("interrupted by panel restart")
+        );
     }
 
     #[tokio::test]
     async fn retention_needs_both_limits() {
         let (_t, db, sid) = setup().await;
         for i in 0..5 {
-            let b = db.backups().create(sid, &format!("b{i}"), BackupKind::Scheduled, BackupFormat::Zip, "local", "k").await.unwrap();
-            db.backups().complete(b.id, 10, None, 10, 1, true).await.unwrap();
+            let b = db
+                .backups()
+                .create(
+                    sid,
+                    &format!("b{i}"),
+                    BackupKind::Scheduled,
+                    BackupFormat::Zip,
+                    "local",
+                    "k",
+                )
+                .await
+                .unwrap();
+            db.backups()
+                .complete(b.id, 10, None, 10, 1, true)
+                .await
+                .unwrap();
             let _ = sqlx::query("UPDATE backups SET created_at_ms = ? WHERE id = ?")
                 .bind(now_ms() - i64::from(10 - i) * 86_400_000)
                 .bind(b.id.get())
@@ -371,7 +483,12 @@ mod tests {
                 .unwrap();
         }
         // keep_last=3, keep_days=100 → nothing is both beyond count and too old.
-        assert!(db.backups().retention_excess(sid, 3, 100).await.unwrap().is_empty());
+        assert!(db
+            .backups()
+            .retention_excess(sid, 3, 100)
+            .await
+            .unwrap()
+            .is_empty());
         // keep_last=3, keep_days=2 → the 3 oldest qualify.
         let doomed = db.backups().retention_excess(sid, 3, 2).await.unwrap();
         assert_eq!(doomed.len(), 3);
@@ -401,7 +518,12 @@ mod tests {
         assert_eq!(list[0].0, sid);
         p.enabled = false;
         db.backups().set_policy(sid, &p).await.unwrap();
-        assert!(db.backups().servers_with_enabled_policies().await.unwrap().is_empty());
+        assert!(db
+            .backups()
+            .servers_with_enabled_policies()
+            .await
+            .unwrap()
+            .is_empty());
         // policies cascade with the server
         db.servers().delete(sid).await.unwrap();
         assert_eq!(db.backups().policy(sid).await.unwrap(), default);

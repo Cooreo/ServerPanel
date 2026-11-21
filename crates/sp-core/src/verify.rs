@@ -182,10 +182,7 @@ pub fn verify_file(path: &Path, expected: &str) -> Result<Hashes, CoreError> {
     let algo = algo.ok_or_else(|| {
         CoreError::validation("sha", format!("cannot tell which hash `{expected}` is"))
     })?;
-    let got = actual
-        .digest(algo)
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+    let got = actual.digest(algo).unwrap_or_default().to_ascii_lowercase();
     if constant_time_eq(got.as_bytes(), want.as_bytes()) {
         Ok(actual)
     } else {
@@ -206,9 +203,12 @@ pub fn verify_hashes(path: &Path, expected: &Hashes) -> Result<(), CoreError> {
         HashAlgorithm::Sha256,
         HashAlgorithm::Sha512,
     ] {
-        let Some(raw) = expected.digest(algo) else { continue };
-        let (_, want) = normalise_digest(raw)
-            .ok_or_else(|| CoreError::validation("hash", format!("malformed digest `{raw}` in manifest")))?;
+        let Some(raw) = expected.digest(algo) else {
+            continue;
+        };
+        let (_, want) = normalise_digest(raw).ok_or_else(|| {
+            CoreError::validation("hash", format!("malformed digest `{raw}` in manifest"))
+        })?;
         let got = actual.digest(algo).unwrap_or_default();
         if !constant_time_eq(got.as_bytes(), want.as_bytes()) {
             return Err(CoreError::ChecksumMismatch {
@@ -253,7 +253,10 @@ mod tests {
         // echo -n "" | sha1sum / sha256sum / sha512sum
         let (_t, p) = tmp(b"");
         let h = hash_file(&p).unwrap();
-        assert_eq!(h.sha1.as_deref().unwrap(), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+        assert_eq!(
+            h.sha1.as_deref().unwrap(),
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        );
         assert_eq!(
             h.sha256.as_deref().unwrap(),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -263,8 +266,14 @@ mod tests {
 
         let (_t, p) = tmp(b"abc");
         let h = hash_file(&p).unwrap();
-        assert_eq!(h.sha256.as_deref().unwrap(), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-        assert_eq!(h.sha1.as_deref().unwrap(), "a9993e364706816aba3e25717850c26c9cd0d89d");
+        assert_eq!(
+            h.sha256.as_deref().unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            h.sha1.as_deref().unwrap(),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
     }
 
     #[test]
@@ -281,11 +290,24 @@ mod tests {
 
     #[test]
     fn normalisation_handles_publisher_formats() {
-        let (algo, hexv) = normalise_digest("sha256-E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855").unwrap();
+        let (algo, hexv) = normalise_digest(
+            "sha256-E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+        )
+        .unwrap();
         assert_eq!(algo, Some(HashAlgorithm::Sha256));
         assert_eq!(hexv.len(), 64);
-        assert_eq!(normalise_digest("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap().0, Some(HashAlgorithm::Sha256));
-        assert_eq!(normalise_digest("da39a3ee5e6b4b0d3255bfef95601890afd80709").unwrap().0, Some(HashAlgorithm::Sha1));
+        assert_eq!(
+            normalise_digest("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+                .unwrap()
+                .0,
+            Some(HashAlgorithm::Sha256)
+        );
+        assert_eq!(
+            normalise_digest("da39a3ee5e6b4b0d3255bfef95601890afd80709")
+                .unwrap()
+                .0,
+            Some(HashAlgorithm::Sha1)
+        );
         assert!(normalise_digest("not-a-hash").is_none());
         assert!(normalise_digest("").is_none());
     }
@@ -298,7 +320,9 @@ mod tests {
         verify_file(&p, &format!("sha1-{good}")).unwrap();
         let err = verify_file(&p, &"0".repeat(40)).unwrap_err();
         match err {
-            CoreError::ChecksumMismatch { expected, actual, .. } => {
+            CoreError::ChecksumMismatch {
+                expected, actual, ..
+            } => {
                 assert!(expected.contains("sha1"));
                 assert!(actual.contains(&good[..8]));
             }
@@ -332,7 +356,11 @@ mod tests {
 
     #[test]
     fn algo_roundtrip() {
-        for a in [HashAlgorithm::Sha1, HashAlgorithm::Sha256, HashAlgorithm::Sha512] {
+        for a in [
+            HashAlgorithm::Sha1,
+            HashAlgorithm::Sha256,
+            HashAlgorithm::Sha512,
+        ] {
             assert_eq!(HashAlgorithm::from_str_name(a.as_str()), Some(a));
             assert_eq!(HashAlgorithm::from_hex_len(a.hex_len()), Some(a));
         }

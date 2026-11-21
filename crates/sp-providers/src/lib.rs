@@ -31,8 +31,8 @@
 //! | Geyser    | `https://api.github.com/repos/GeyserMC/Geyser/releases`     |
 
 pub mod fabric;
-pub mod install;
 pub mod forge;
+pub mod install;
 pub mod mojang;
 pub mod paper;
 pub mod profile;
@@ -253,7 +253,10 @@ pub fn compare_version_strings(a: &str, b: &str) -> std::cmp::Ordering {
     };
     let (pa, pb) = (parts(a), parts(b));
     for i in 0..pa.len().max(pb.len()) {
-        let (x, y) = (pa.get(i).copied().unwrap_or(0), pb.get(i).copied().unwrap_or(0));
+        let (x, y) = (
+            pa.get(i).copied().unwrap_or(0),
+            pb.get(i).copied().unwrap_or(0),
+        );
         match x.cmp(&y) {
             std::cmp::Ordering::Equal => continue,
             other => return other,
@@ -276,9 +279,17 @@ impl Registry {
         };
         let mojang = std::sync::Arc::new(mojang::MojangProvider::new(cfg)?);
         insert(mojang.clone());
-        insert(std::sync::Arc::new(paper::PaperProvider::paper(cfg, mojang.clone())?));
-        insert(std::sync::Arc::new(paper::PaperProvider::folia(cfg, mojang.clone())?));
-        insert(std::sync::Arc::new(paper::PaperProvider::velocity(cfg, mojang)?));
+        insert(std::sync::Arc::new(paper::PaperProvider::paper(
+            cfg,
+            mojang.clone(),
+        )?));
+        insert(std::sync::Arc::new(paper::PaperProvider::folia(
+            cfg,
+            mojang.clone(),
+        )?));
+        insert(std::sync::Arc::new(paper::PaperProvider::velocity(
+            cfg, mojang,
+        )?));
         insert(std::sync::Arc::new(paper::PurpurProvider::new(cfg)?));
         insert(std::sync::Arc::new(fabric::FabricProvider::fabric(cfg)?));
         insert(std::sync::Arc::new(fabric::FabricProvider::quilt(cfg)?));
@@ -286,7 +297,9 @@ impl Registry {
         insert(std::sync::Arc::new(forge::ForgeProvider::neoforge(cfg)?));
         insert(std::sync::Arc::new(spigot::SpigotProvider::new(cfg)?));
         insert(std::sync::Arc::new(spigot::GeyserProvider::new(cfg)?));
-        insert(std::sync::Arc::new(spigot::UploadOnlyProvider::bungeecord(cfg)?));
+        insert(std::sync::Arc::new(spigot::UploadOnlyProvider::bungeecord(
+            cfg,
+        )?));
         Ok(Self { by_kind })
     }
 
@@ -295,7 +308,10 @@ impl Registry {
     }
 
     pub fn kinds(&self) -> Vec<sp_core::model::ServerKind> {
-        self.by_kind.keys().filter_map(|k| kind_from_key(k)).collect()
+        self.by_kind
+            .keys()
+            .filter_map(|k| kind_from_key(k))
+            .collect()
     }
 }
 
@@ -440,7 +456,10 @@ pub fn filter_listing(
         if !compatible.is_empty() {
             versions = compatible;
         } else {
-            tracing::debug!(major, "no version fits the requested Java, ignoring the filter");
+            tracing::debug!(
+                major,
+                "no version fits the requested Java, ignoring the filter"
+            );
         }
     }
     versions
@@ -504,7 +523,10 @@ mod tests {
     #[test]
     fn filters_apply() {
         let mut list = vec![
-            VersionInfo { unstable: true, ..v("s", "1.21", None, Some(2)) },
+            VersionInfo {
+                unstable: true,
+                ..v("s", "1.21", None, Some(2))
+            },
             v("p", "1.21", None, Some(1)),
             v("q", "1.20", None, Some(3)),
         ];
@@ -516,12 +538,19 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].id, "p");
         list.sort_by(|a, b| b.id.cmp(&a.id));
-        assert_eq!(filter_listing(list, &sel, true).len(), 2, "snapshots opt in");
+        assert_eq!(
+            filter_listing(list, &sel, true).len(),
+            2,
+            "snapshots opt in"
+        );
     }
 
     #[test]
     fn java_major_filter_never_empties_the_list() {
-        let list = vec![VersionInfo { java_major: Some(21), ..v("a", "1.21", None, Some(1)) }];
+        let list = vec![VersionInfo {
+            java_major: Some(21),
+            ..v("a", "1.21", None, Some(1))
+        }];
         let sel = VersionSelection {
             java_major: Some(8),
             ..Default::default()
@@ -548,10 +577,14 @@ mod tests {
             provider: "test",
             version: v("a", "1.21", None, None),
             files: vec![
-                DownloadFile::new(FileRole::ServerJar, "u", "a.jar").with_sha1(Some("s".into()), Some(100)),
+                DownloadFile::new(FileRole::ServerJar, "u", "a.jar")
+                    .with_sha1(Some("s".into()), Some(100)),
                 DownloadFile::new(FileRole::Library, "u", "b.jar").with_sha1(None, Some(50)),
             ],
-            launch: LaunchMode::Jar { jar: "a.jar".into(), args: vec!["--nogui".into()] },
+            launch: LaunchMode::Jar {
+                jar: "a.jar".into(),
+                args: vec!["--nogui".into()],
+            },
             jvm_args: vec![],
             natives_dir: None,
             java_major: 21,
@@ -592,16 +625,26 @@ mod tests {
             assert!(reg.get(kind).is_some(), "no provider for {kind:?}");
             assert_eq!(kind_key(kind), kind_key(kind));
         }
-        assert_eq!(reg.kinds().len(), 13, "Velocity+BungeeCord share one provider entry");
+        assert_eq!(
+            reg.kinds().len(),
+            13,
+            "Velocity+BungeeCord share one provider entry"
+        );
     }
 
     #[test]
     fn base_url_overrides_take_effect() {
         let mut cfg = RegistryConfig::default();
-        assert_eq!(cfg.base("paper", "https://api.papermc.io"), "https://api.papermc.io");
+        assert_eq!(
+            cfg.base("paper", "https://api.papermc.io"),
+            "https://api.papermc.io"
+        );
         cfg.base_url_overrides
             .insert("paper".into(), "http://127.0.0.1:9/v2".into());
-        assert_eq!(cfg.base("paper", "https://api.papermc.io"), "http://127.0.0.1:9/v2");
+        assert_eq!(
+            cfg.base("paper", "https://api.papermc.io"),
+            "http://127.0.0.1:9/v2"
+        );
         let client = cfg.client("paper", "https://api.papermc.io").unwrap();
         assert_eq!(client.base_url(), Some("http://127.0.0.1:9/v2"));
         // A provider may therefore ask for relative paths only.
@@ -645,7 +688,9 @@ pub(crate) mod mock {
         let hits_bg = hits.clone();
         let handle = tokio::spawn(async move {
             loop {
-                let Ok((mut sock, _)) = listener.accept().await else { return };
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
                 let routes = routes.clone();
                 let hits = hits_bg.clone();
                 tokio::spawn(async move {
@@ -685,4 +730,3 @@ pub(crate) mod mock {
         MockUpstream { port, hits, handle }
     }
 }
-

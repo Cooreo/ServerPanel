@@ -77,9 +77,7 @@ unsafe fn create_and_assign(pid: u32) -> Result<usize, String> {
         SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
-    use windows::Win32::System::Threading::{
-        OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
-    };
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
     // 1. Create an unnamed job.
     let job = CreateJobObjectW(PCWSTR::null(), None).map_err(|e| e.to_string())?;

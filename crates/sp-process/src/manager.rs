@@ -85,7 +85,11 @@ pub struct ProcessManager {
 }
 
 impl ProcessManager {
-    pub fn new(bus: Arc<EventBus>, policy: ManagerPolicy, delegate: Arc<dyn ProcessDelegate>) -> Self {
+    pub fn new(
+        bus: Arc<EventBus>,
+        policy: ManagerPolicy,
+        delegate: Arc<dyn ProcessDelegate>,
+    ) -> Self {
         let starts = policy.max_concurrent_starts.max(1);
         Self {
             inner: Arc::new(Inner {
@@ -200,13 +204,14 @@ impl ProcessManager {
                     RestartMode::Always => crashes <= inner.policy.max_unconditional_restarts,
                     RestartMode::OnCrash => crashes <= restart.max_retries,
                 } && !inner.stopping_all.load(Relaxed);
-                inner
-                    .delegate
-                    .on_exit(id, exit.clone(), will_restart)
-                    .await;
+                inner.delegate.on_exit(id, exit.clone(), will_restart).await;
                 if !will_restart {
                     if crashes > 1 && !stable {
-                        tracing::warn!(server = id.get(), crashes, "auto-restart disabled: repeated fast crashes");
+                        tracing::warn!(
+                            server = id.get(),
+                            crashes,
+                            "auto-restart disabled: repeated fast crashes"
+                        );
                     }
                     continue;
                 }
@@ -277,10 +282,17 @@ impl ProcessManager {
         out
     }
 
-    pub async fn restart(&self, server_id: ServerId, plan: LaunchPlan, restart: RestartPolicy) -> Result<Arc<Instance>, CoreError> {
+    pub async fn restart(
+        &self,
+        server_id: ServerId,
+        plan: LaunchPlan,
+        restart: RestartPolicy,
+    ) -> Result<Arc<Instance>, CoreError> {
         if let Some(instance) = self.get(server_id) {
             if instance.status().is_running() || instance.status().is_busy() {
-                instance.graceful_stop(self.inner.policy.stop_timeout).await?;
+                instance
+                    .graceful_stop(self.inner.policy.stop_timeout)
+                    .await?;
             }
             self.detach_if_idle(server_id).await;
         }
@@ -306,7 +318,11 @@ impl ProcessManager {
 
     /// Apply a config change to a *running* server: remember the new plan so the
     /// next start (or scheduled restart) uses it, without touching the live JVM.
-    pub async fn update_plan(&self, server_id: ServerId, plan: LaunchPlan) -> Result<(), CoreError> {
+    pub async fn update_plan(
+        &self,
+        server_id: ServerId,
+        plan: LaunchPlan,
+    ) -> Result<(), CoreError> {
         let instance = self.instance_or_err(server_id)?;
         instance.replace_plan(plan).await;
         Ok(())
@@ -324,7 +340,9 @@ impl ProcessManager {
         };
         let deadline = tokio::time::Instant::now() + total;
         for id in ids.iter().rev() {
-            let Some(instance) = self.get(*id) else { continue };
+            let Some(instance) = self.get(*id) else {
+                continue;
+            };
             if !instance.status().is_running() && !instance.status().is_busy() {
                 continue;
             }
@@ -363,7 +381,9 @@ impl ProcessManager {
     }
 
     async fn detach_if_idle(&self, server_id: ServerId) {
-        let Some(instance) = self.get(server_id) else { return };
+        let Some(instance) = self.get(server_id) else {
+            return;
+        };
         if instance.status().is_running() || instance.status().is_busy() {
             return;
         }

@@ -202,7 +202,10 @@ pub fn rules_allow(rules: &[Rule], features: &BTreeMap<String, bool>) -> bool {
                 }
             }
             other => {
-                tracing::warn!(action = other, "unknown rule action in launch profile, ignoring");
+                tracing::warn!(
+                    action = other,
+                    "unknown rule action in launch profile, ignoring"
+                );
             }
         }
     }
@@ -307,7 +310,9 @@ pub fn jvm_args(profile: &LaunchProfile, features: &BTreeMap<String, bool>) -> V
             }
         }
     }
-    out.retain(|a| !a.starts_with("-Djava.library.path") && a != "-cp" && !a.starts_with("-Dlog4j2"));
+    out.retain(|a| {
+        !a.starts_with("-Djava.library.path") && a != "-cp" && !a.starts_with("-Dlog4j2")
+    });
     out
 }
 
@@ -385,7 +390,12 @@ mod tests {
         let natives_lib = &p.libraries[1];
         assert!(natives_lib.natives.contains_key(os_name()));
         let classifier = &natives_lib.natives[os_name()];
-        let art = natives_lib.downloads.as_ref().unwrap().classifiers.get(classifier);
+        let art = natives_lib
+            .downloads
+            .as_ref()
+            .unwrap()
+            .classifiers
+            .get(classifier);
         assert!(art.is_some(), "{classifier} must be present in the fixture");
         // The third library is linux-only; on other OSes its rule denies it.
         let only_linux = rules_allow(&p.libraries[2].rules, &BTreeMap::new());
@@ -412,7 +422,15 @@ mod tests {
         )
         .unwrap();
         let args = game_args(&p, &BTreeMap::new());
-        assert_eq!(args, vec!["--username".to_string(), "--version".to_string(), "1.8.9".to_string(), "--demo".to_string()]);
+        assert_eq!(
+            args,
+            vec![
+                "--username".to_string(),
+                "--version".to_string(),
+                "1.8.9".to_string(),
+                "--demo".to_string()
+            ]
+        );
         assert!(jvm_args(&p, &BTreeMap::new()).is_empty());
     }
 }

@@ -15,7 +15,14 @@ use crate::error::CoreError;
 
 /// Flags must never set the heap directly — the panel owns `-Xms`/`-Xmx` so the
 /// per-server memory limit stays authoritative (and matches what the UI charts).
-const HEAP_FLAGS: [&str; 6] = ["-Xms", "-Xmx", "-XX:InitialHeapSize", "-XX:MaxHeapSize", "-XX:MinHeapSize", "-XX:SoftMaxHeapSize"];
+const HEAP_FLAGS: [&str; 6] = [
+    "-Xms",
+    "-Xmx",
+    "-XX:InitialHeapSize",
+    "-XX:MaxHeapSize",
+    "-XX:MinHeapSize",
+    "-XX:SoftMaxHeapSize",
+];
 
 pub const PRESET_NONE: &str = "none";
 pub const PRESET_AIKAR: &str = "aikar";
@@ -168,10 +175,16 @@ pub fn validate_flags(flags: &[String]) -> Result<(), CoreError> {
     for (i, raw) in flags.iter().enumerate() {
         let f = raw.trim();
         if f.is_empty() {
-            return Err(CoreError::validation("jvm_flags", format!("flag #{i} is empty")));
+            return Err(CoreError::validation(
+                "jvm_flags",
+                format!("flag #{i} is empty"),
+            ));
         }
         if f.chars().any(|c| c == '\0' || c == '\n' || c == '\r') {
-            return Err(CoreError::validation("jvm_flags", "flag contains a control character"));
+            return Err(CoreError::validation(
+                "jvm_flags",
+                "flag contains a control character",
+            ));
         }
         if f.contains(char::is_whitespace) {
             return Err(CoreError::validation(
@@ -187,7 +200,8 @@ pub fn validate_flags(flags: &[String]) -> Result<(), CoreError> {
                 ));
             }
         }
-        if f.starts_with("-agentlib") || f.starts_with("-agentpath") || f.starts_with("-javaagent") {
+        if f.starts_with("-agentlib") || f.starts_with("-agentpath") || f.starts_with("-javaagent")
+        {
             return Err(CoreError::validation(
                 "jvm_flags",
                 "agent flags are not permitted; install the mod/plugin instead",
@@ -212,8 +226,13 @@ mod tests {
         let p = presets();
         assert_eq!(p.len(), 4);
         let ids: Vec<&str> = p.iter().map(|x| x.id.as_str()).collect();
-        assert_eq!(ids, vec![PRESET_AIKAR, PRESET_MODERN_G1, PRESET_ZGC, PRESET_NONE]);
-        assert!(p.iter().all(|x| !x.label.is_empty() && !x.description.is_empty()));
+        assert_eq!(
+            ids,
+            vec![PRESET_AIKAR, PRESET_MODERN_G1, PRESET_ZGC, PRESET_NONE]
+        );
+        assert!(p
+            .iter()
+            .all(|x| !x.label.is_empty() && !x.description.is_empty()));
     }
 
     #[test]
@@ -222,7 +241,10 @@ mod tests {
         assert!(f.contains(&"-XX:+UseG1GC".to_string()));
         assert!(f.iter().any(|x| x.starts_with("-Dusing.aikars.flags=")));
         assert!(f.iter().any(|x| x == "-Daikars.new.flags=true"));
-        assert!(!f.iter().any(|x| x.starts_with("-Xm")), "heap is owned by the panel");
+        assert!(
+            !f.iter().any(|x| x.starts_with("-Xm")),
+            "heap is owned by the panel"
+        );
         validate_flags(&f).expect("the shipped preset must validate");
         validate_flags(&modern_g1_flags()).expect("modern preset validates");
         validate_flags(&zgc_flags(21)).expect("zgc preset validates");

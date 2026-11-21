@@ -3,8 +3,10 @@
 use crate::error::{DbError, DbResult};
 use crate::migrate;
 use crate::repos;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous, SqliteTempStore};
-use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous};
+// `Row` carries `try_get`, `ConnectOptions` carries `log_slow_statements`. Both are
+// traits, so calling them as methods needs the trait in scope.
+use sqlx::{ConnectOptions, Row, SqlitePool};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -71,9 +73,13 @@ impl Db {
                 }
                 // `filename` rather than a `sqlite://` URL: Windows paths contain
                 // backslashes and drive colons, which URL parsing mangles.
-                SqliteConnectOptions::new().filename(p).create_if_missing(true)
+                SqliteConnectOptions::new()
+                    .filename(p)
+                    .create_if_missing(true)
             }
-            DbPath::Memory => SqliteConnectOptions::new().in_memory(true).shared_cache(true),
+            DbPath::Memory => SqliteConnectOptions::new()
+                .in_memory(true)
+                .shared_cache(true),
         };
         Ok(base
             // WAL: readers never block the writer, which matters because the
@@ -86,7 +92,10 @@ impl Db {
             // NORMAL is durable enough for a panel whose contents are all
             // reconstructible (servers live on disk; the DB is the index).
             .synchronous(SqliteSynchronous::Normal)
-            .temp_store(SqliteTempStore::Memory)
+            // sqlx 0.8 has no `temp_store` builder, and it has to be a connect-time pragma:
+            // a `PRAGMA temp_store` run through the pool in `after_open` would configure the
+            // one connection that happened to run it and leave the rest of the pool on disk.
+            .pragma("temp_store", "2")
             .foreign_keys(true)
             .busy_timeout(Duration::from_secs(10))
             // Slow queries in a panel are a bug, but log them rather than hide them.
@@ -122,8 +131,12 @@ impl Db {
 
     /// `PRAGMA integrity_check` — surfaced by `serverpanel doctor`.
     pub async fn integrity_check(&self) -> DbResult<String> {
-        let row = sqlx::query("PRAGMA integrity_check").fetch_one(&self.pool).await?;
-        Ok(row.try_get::<String, _>("integrity_check").unwrap_or_else(|_| "ok".into()))
+        let row = sqlx::query("PRAGMA integrity_check")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row
+            .try_get::<String, _>("integrity_check")
+            .unwrap_or_else(|_| "ok".into()))
     }
 
     pub async fn vacuum(&self) -> DbResult<()> {
@@ -213,7 +226,10 @@ mod tests {
         let path = dir.path().join("nested").join("panel.db");
         {
             let db = Db::connect(&DbPath::file(&path)).await.unwrap();
-            db.settings().set("boot_count", &serde_json::json!(1)).await.unwrap();
+            db.settings()
+                .set("boot_count", &serde_json::json!(1))
+                .await
+                .unwrap();
             db.checkpoint().await.unwrap();
         }
         assert!(path.exists(), "parent dir must be created automatically");

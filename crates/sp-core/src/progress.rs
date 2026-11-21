@@ -44,13 +44,28 @@ struct State {
 }
 
 impl ProgressReporter {
-    pub fn new(job_id: impl Into<String>, server_id: Option<ServerId>, phase: ProgressPhase, bus: Arc<EventBus>) -> Self {
-        Self::build(job_id, server_id, phase, Some(bus), Duration::from_millis(120))
+    pub fn new(
+        job_id: impl Into<String>,
+        server_id: Option<ServerId>,
+        phase: ProgressPhase,
+        bus: Arc<EventBus>,
+    ) -> Self {
+        Self::build(
+            job_id,
+            server_id,
+            phase,
+            Some(bus),
+            Duration::from_millis(120),
+        )
     }
 
     /// A reporter that only accumulates (used in tests and for nested jobs whose
     /// output is folded into a parent job).
-    pub fn silent(job_id: impl Into<String>, server_id: Option<ServerId>, phase: ProgressPhase) -> Self {
+    pub fn silent(
+        job_id: impl Into<String>,
+        server_id: Option<ServerId>,
+        phase: ProgressPhase,
+    ) -> Self {
         Self::build(job_id, server_id, phase, None, Duration::from_millis(120))
     }
 
@@ -274,13 +289,21 @@ mod tests {
         r.complete("done");
 
         let mut msgs = Vec::new();
-        while let Ok(ev) = tokio::time::timeout(Duration::from_millis(30), sub.recv()).await {
+        while let Ok(Ok(ev)) = tokio::time::timeout(Duration::from_millis(30), sub.recv()).await {
             if let PanelEvent::Progress(p) = ev.event {
                 msgs.push(p);
             }
         }
-        assert!(msgs.len() >= 2, "expected first + last at minimum, got {}", msgs.len());
-        assert!(msgs.len() < 1000, "expected coalescing, got {} events", msgs.len());
+        assert!(
+            msgs.len() >= 2,
+            "expected first + last at minimum, got {}",
+            msgs.len()
+        );
+        assert!(
+            msgs.len() < 1000,
+            "expected coalescing, got {} events",
+            msgs.len()
+        );
         let last = msgs.last().unwrap();
         assert!(last.finished);
         assert_eq!(last.message, "done");

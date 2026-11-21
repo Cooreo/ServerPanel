@@ -1,0 +1,232 @@
+# TEMPORARY — delete when ci.yml is green. Not a gate; it relays cargo's own output
+# to issue #2, because this sandbox cannot reach
+# results-receiver.actions.githubusercontent.com and `gh run view --log` fails even
+# after a job ran. Pass/fail logic stays in ci.yml; this only moves text.
+name: diag
+on:
+  push:
+    branches: ["arena/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+env:
+  DIAG_ISSUE: "2"
+jobs:
+  diag:
+    name: Relay cargo output
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: diag
+
+      - name: rustfmt
+        run: |
+          # Every step here expects a non-zero exit on a red tree: the failure *is*
+          # the payload, so `bash -e` must not abort the job on it. An earlier revision
+          # died at `cargo fmt -- --check` returning 1 - the normal case - and posted
+          # nothing at all.
+          set +e
+          cargo fmt --all > fmt.log 2>&1
+          echo "fmt fix exit: $?" >> fmt.log
+          cargo fmt --all -- --check > fmtcheck.log 2>&1
+          echo "fmt check exit: $?" >> fmtcheck.log
+          git checkout -- .
+
+      - name: cargo check
+        run: |
+          set +e
+          # --keep-going reports every crate instead of stopping at the first: without
+          # it, a failure in sp-core hides the six crates behind it and each round trip
+          # to CI costs one crate's worth of errors.
+          cargo check --workspace --all-targets --keep-going --message-format short > check.log 2>&1
+          if grep -q "unexpected argument '--keep-going'" check.log; then
+            echo "(--keep-going unsupported by this cargo; re-running without it)" > check.log
+            cargo check --workspace --all-targets --message-format short >> check.log 2>&1
+          fi
+          echo "check exit: $?" >> check.log
+
+      - name: clippy
+        run: |
+          set +e
+          cargo clippy --workspace --all-targets --keep-going --message-format short \
+            -- -D warnings -D clippy::pedantic \
+               -A clippy::module_name_repetitions -A clippy::missing_errors_doc \
+               -A clippy::needless_pass_by_value -A clippy::too_many_lines \
+            > clippy.log 2>&1
+          if grep -q "unexpected argument '--keep-going'" clippy.log; then
+            cargo clippy --workspace --all-targets --message-format short \
+              -- -D warnings > clippy.log 2>&1
+          fi
+          echo "clippy exit: $?" >> clippy.log
+
+      - name: tidy
+        run: |
+          set +e
+          # Cargo colour-codes everything, and it prints "unused workspace
+          # dependency" notes for path deps whose crates are not written yet. Both
+          # push the real diagnostics past a fixed-size relay, so colour is stripped
+          # and that one note is dropped once, for all logs.
+          #
+          # Matching on the substring `error` is a trap of its own: it hits
+          # `thiserror`, `Compiling thiserror-impl` and `Downloaded thiserror`, which
+          # is how the first version of this step reported "0 errors" for a red build.
+          # `--message-format short` writes `path.rs:line:col: error[code]: text`, so
+          # that is what the classifier looks for.
+          for f in fmt.log fmtcheck.log check.log clippy.log; do
+            sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g' "$f" > "$f.clean"
+            grep -v "unused workspace dependency" "$f.clean" |
+              grep -v "^ *|" |
+              grep -v "consider removing the workspace dependency" > "$f.filt" || true
+            mv "$f.filt" "$f.clean"
+          done
+
+      - name: relay
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          # If the script below ever dies, the shell fallback still posts the raw
+          # diagnostics: a relay that fails quietly is indistinguishable from a clean
+          # build, which is the exact bug this file exists to avoid.
+          if ! python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+
+          DIAG = os.environ["DIAG_ISSUE"]
+          sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                               capture_output=True, text=True).stdout.strip() or "?"
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
+
+
+          def read(name):
+              try:
+                  with open(name, errors="replace") as fh:
+                      return fh.read()
+              except FileNotFoundError:
+                  return ""
+
+
+          DIAG_RE = re.compile(r"\.rs:\d+:\d+: (?:error|warning)")
+
+
+          def diags(text):
+              return [l for l in text.splitlines() if DIAG_RE.search(l)]
+
+
+          fmt = read("fmt.log.clean")
+          fmtcheck = read("fmtcheck.log.clean")
+          check = read("check.log.clean")
+          clippy = read("clippy.log.clean")
+
+          cerr = diags(check)
+          dall = diags(clippy)
+          cwarn = [l for l in dall if ": warning" in l]
+          cerror = [l for l in dall if ": error" in l]
+
+          codes = {}
+          for line in cerr + dall:
+              m = re.search(r"error\[([^\]]+)\]|warning\[([^\]]+)\]", line)
+              key = (m.group(1) or m.group(2)) if m else ("error" if ": error" in line else "warning")
+              codes[key] = codes.get(key, 0) + 1
+
+          by_crate = {}
+          for line in cerr:
+              m = re.match(r"(crates/[^/]+)", line)
+              if m:
+                  by_crate[m.group(1)] = by_crate.get(m.group(1), 0) + 1
+
+          def last(text):
+              return text.strip().splitlines()[-1] if text.strip() else "n/a"
+
+
+          def n(count, word):
+              # "1 errors" in a report makes people doubt the number, so the helper is
+              # here rather than three conditional f-strings.
+              return f"{count} {word}" + ("" if count == 1 else "s")
+
+          hunks = len(re.findall(r"^Diff in", fmtcheck, re.M))
+          out = [f"### `{sha}` — run {run_id}", ""]
+          out += ["| step | result |", "| --- | --- |"]
+          out += [f"| rustfmt | {hunks} diff hunks, fix exit `{last(fmt)}` |"]
+          out += [f"| cargo check | {n(len(cerr), 'error')}, `{last(check)}` |"]
+          out += [f"| clippy | {n(len(cerror), 'error')}, {n(len(cwarn), 'warning')}, `{last(clippy)}` |"]
+          out += [""]
+          if by_crate:
+              out += ["errors by crate: " + ", ".join(
+                  f"{k}={v}" for k, v in sorted(by_crate.items(), key=lambda kv: -kv[1]))]
+              out += [""]
+          if codes:
+              out += ["by kind: " + ", ".join(
+                  f"`{k}`×{v}" for k, v in sorted(codes.items(), key=lambda kv: -kv[1]))]
+              out += [""]
+
+          # `cargo fmt` failing is not only "the tree is unformatted": rustfmt parses
+          # and resolves the module tree, so it doubles as a cheap syntax-error channel
+          # that costs seconds instead of a full `cargo check`. Reported before the
+          # error list, because a parse error blocks the whole build.
+          if "fmt fix exit: 0" not in fmt:
+              out += ["", "### cargo fmt output (parse errors live here)", "",
+                      "```text"] + fmt.strip().splitlines()[-40:] + ["```"]
+
+          parts = ["\n".join(out)]
+
+          chunk = ""
+          shown = 0
+          for line in cerr[:400]:
+              if len(chunk) + len(line) + 1 > 58000:
+                  parts.append("```text\n" + chunk + "\n```")
+                  chunk = ""
+              chunk += line + "\n"
+              shown += 1
+          if chunk:
+              parts.append("```text\n" + chunk + "\n```")
+          if len(cerr) > shown:
+              parts.append(f"_(showing {shown} of {n(len(cerr), 'check error')})_")
+
+          if cerr:
+              tail = check.strip().splitlines()[-25:]
+              parts.append("<details><summary>raw check tail</summary>\n\n```text\n"
+                           + "\n".join(tail) + "\n```\n\n</details>")
+          else:
+              # A build can fail with no file:line diagnostics at all (manifest error,
+              # resolver conflict, panicking build script). Without this branch that
+              # reads as "clean", which is worse than reporting nothing.
+              parts.append("### raw logs (no file:line diagnostics found)\n\n```text\n"
+                           + "\n".join(check.strip().splitlines()[-70:]) + "\n```\n")
+              parts.append("```text\n" + "\n".join(clippy.strip().splitlines()[-40:]) + "\n```\n")
+
+          for i, part in enumerate(parts):
+              if len(part) > 62000:
+                  part = part[:62000] + "\n…truncated\n"
+              path = f"body-{i}.md"
+              with open(path, "w") as fh:
+                  fh.write(part)
+              subprocess.run(["gh", "issue", "comment", DIAG,
+                              "--repo", os.environ["GITHUB_REPOSITORY"],
+                              "--body-file", path], check=False)
+          print(f"posted {len(parts)} comment(s); {len(cerr)} check errors relayed")
+          PY
+          then
+            set +e
+            {
+              echo "### relay script failed — raw diagnostics"
+              echo ""
+              echo '```text'
+              grep -E '\.rs:[0-9]+:[0-9]+: (error|warning)' check.log.clean | head -200
+              echo '```'
+              echo ""
+              echo '```text'
+              tail -40 check.log.clean
+              echo '--- cargo fmt ---'
+              tail -20 fmt.log.clean
+              echo '```'
+            } > fallback-body.md
+            gh issue comment "$DIAG_ISSUE" --repo "$GITHUB_REPOSITORY" --body-file fallback-body.md || true
+          fi

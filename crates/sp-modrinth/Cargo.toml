@@ -1,0 +1,32 @@
+[package]
+name = "sp-modrinth"
+description = "Modrinth: mod/plugin/resource-pack install, update checks, and .mrpack modpacks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+sp-core.workspace = true
+sp-net.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+futures.workspace = true
+base64.workspace = true
+hex.workspace = true
+walkdir.workspace = true
+dashmap.workspace = true
+zip.workspace = true
+semver.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+sha1.workspace = true
+tokio = { workspace = true, features = ["full"] }

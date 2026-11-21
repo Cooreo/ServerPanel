@@ -215,7 +215,11 @@ mod tests {
     use super::*;
 
     fn push(ring: &LogRing, text: &str) -> u64 {
-        ring.push(LogStream::Stdout, format!("\x1b[0;32m{text}\x1b[0m"), text.to_string())
+        ring.push(
+            LogStream::Stdout,
+            format!("\x1b[0;32m{text}\x1b[0m"),
+            text.to_string(),
+        )
     }
 
     #[test]
@@ -245,7 +249,11 @@ mod tests {
         }
         assert_eq!(ring.after(3).unwrap().len(), 2);
         assert_eq!(ring.after(5).unwrap(), vec![]);
-        assert_eq!(ring.after(0).unwrap().len(), 5, "0 means everything retained");
+        assert_eq!(
+            ring.after(0).unwrap().len(),
+            5,
+            "0 means everything retained"
+        );
         assert_eq!(ring.after(99).unwrap(), vec![]);
     }
 
@@ -298,7 +306,11 @@ mod tests {
         assert_eq!(strip_ansi("\x1b[1m\x1b[31mred bold\x1b[0m"), "red bold");
         assert_eq!(strip_ansi("no escapes"), "no escapes");
         assert_eq!(strip_ansi("title\x1b]0;window title\x07rest"), "titlerest");
-        assert_eq!(strip_ansi("a\rbbbb"), "bbbb", "carriage-return progress keeps the tail");
+        assert_eq!(
+            strip_ansi("a\rbbbb"),
+            "bbbb",
+            "carriage-return progress keeps the tail"
+        );
         assert_eq!(strip_ansi("\x1b[2J\x1b[Hclear"), "clear");
         assert_eq!(strip_ansi("weird\x1b(Bx"), "weirdx");
         assert_eq!(strip_ansi("done\x1b[0m\r"), "done");

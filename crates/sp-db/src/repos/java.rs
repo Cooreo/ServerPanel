@@ -7,8 +7,8 @@ use crate::repos as r;
 use sp_core::ids::JavaId;
 use sp_core::model::{now_ms, JavaRuntime, JavaSource};
 use sp_core::CoreError;
-use sqlx::{Row, SqlitePool};
-use std::path::PathBuf;
+use sqlx::SqlitePool;
+use std::path::{Path, PathBuf};
 
 pub struct Java<'a> {
     pub(crate) db: &'a Db,
@@ -39,9 +39,11 @@ impl<'a> Java<'a> {
     }
 
     pub async fn all(&self) -> DbResult<Vec<JavaRuntime>> {
-        let rows = sqlx::query(&format!("SELECT {COLS} FROM java_runtimes ORDER BY major DESC, source"))
-            .fetch_all(self.pool())
-            .await?;
+        let rows = sqlx::query(&format!(
+            "SELECT {COLS} FROM java_runtimes ORDER BY major DESC, source"
+        ))
+        .fetch_all(self.pool())
+        .await?;
         rows.iter().map(map).collect()
     }
 
@@ -55,7 +57,17 @@ impl<'a> Java<'a> {
 
     /// Upsert by path: the same JRE discovered twice (once by scanning, once by
     /// the user pointing at it) must stay one row.
-    pub async fn upsert(&self, major: u16, version: &str, vendor: &str, path: &Path, source: JavaSource, arch: &str, sha256: Option<&str>, size_bytes: Option<u64>) -> DbResult<JavaRuntime> {
+    pub async fn upsert(
+        &self,
+        major: u16,
+        version: &str,
+        vendor: &str,
+        path: &Path,
+        source: JavaSource,
+        arch: &str,
+        sha256: Option<&str>,
+        size_bytes: Option<u64>,
+    ) -> DbResult<JavaRuntime> {
         let _ = sqlx::query(
             "INSERT INTO java_runtimes (major, version, vendor, path, source, arch, sha256, size_bytes, installed_at_ms)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -121,20 +133,62 @@ mod tests {
     #[tokio::test]
     async fn upsert_prefers_managed_and_finds_by_major() {
         let dir = tempfile::tempdir().unwrap();
-        let db = Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap();
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
         let sys = PathBuf::from("/usr/lib/jvm/java-21/bin/java");
         let managed = PathBuf::from("/data/java/temurin-21/bin/java");
-        db.java().upsert(21, "21.0.5+11", "Debian", &sys, JavaSource::System, "x86_64", None, None).await.unwrap();
-        db.java().upsert(21, "21.0.6+7", "Eclipse Temurin", &managed, JavaSource::Managed, "x86_64", Some("ff"), Some(123)).await.unwrap();
+        db.java()
+            .upsert(
+                21,
+                "21.0.5+11",
+                "Debian",
+                &sys,
+                JavaSource::System,
+                "x86_64",
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        db.java()
+            .upsert(
+                21,
+                "21.0.6+7",
+                "Eclipse Temurin",
+                &managed,
+                JavaSource::Managed,
+                "x86_64",
+                Some("ff"),
+                Some(123),
+            )
+            .await
+            .unwrap();
         let best = db.java().best_for(21).await.unwrap().unwrap();
-        assert_eq!(best.source, JavaSource::Managed, "the panel-managed JRE wins");
+        assert_eq!(
+            best.source,
+            JavaSource::Managed,
+            "the panel-managed JRE wins"
+        );
         assert_eq!(best.size_bytes, Some(123));
         assert!(best.installed_at_ms.is_some());
         assert_eq!(db.java().by_major(21).await.unwrap().len(), 2);
         assert!(db.java().best_for(8).await.unwrap().is_none());
 
         // re-discovery of the system java keeps one row
-        db.java().upsert(21, "21.0.5+12", "Debian", &sys, JavaSource::System, "x86_64", None, None).await.unwrap();
+        db.java()
+            .upsert(
+                21,
+                "21.0.5+12",
+                "Debian",
+                &sys,
+                JavaSource::System,
+                "x86_64",
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(db.java().all().await.unwrap().len(), 2);
         let removed = db.java().remove(best.id).await.unwrap();
         assert_eq!(removed.path, managed);

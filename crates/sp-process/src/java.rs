@@ -21,14 +21,14 @@
 //!   supplied by the caller so this module stays free of Minecraft knowledge.
 
 use serde::Deserialize;
-use sp_core::progress::ProgressReporter;
-use std::time::Duration;
 use sp_core::model::{now_ms, JavaRuntime, JavaSource};
+use sp_core::progress::ProgressReporter;
 use sp_core::verify::Hashes;
 use sp_core::CoreError;
 use sp_net::download::{self, DownloadJob};
 use sp_net::HttpClient;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Where a discovered JRE came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,7 +120,11 @@ impl JavaManager {
 
         for dir in std::env::split_paths(&std::env::var("PATH").unwrap_or_default()) {
             // `…/bin/java` implies a home of `…/bin/..`
-            let exe = if cfg!(windows) { dir.join("java.exe") } else { dir.join("java") };
+            let exe = if cfg!(windows) {
+                dir.join("java.exe")
+            } else {
+                dir.join("java")
+            };
             if exe.exists() {
                 if let Some(home) = exe.parent().and_then(|p| p.parent()) {
                     push(home.to_path_buf(), JavaSource::System);
@@ -129,13 +133,18 @@ impl JavaManager {
         }
 
         for dir in Self::platform_search_dirs() {
-            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
             for e in entries.flatten() {
                 let path = e.path();
                 if !path.is_dir() {
                     continue;
                 }
-                let name = path.file_name().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+                let name = path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_lowercase())
+                    .unwrap_or_default();
                 if !looks_like_java_dir(&name) {
                     continue;
                 }
@@ -150,12 +159,10 @@ impl JavaManager {
 
         // Probe in parallel: ~100 ms each, and startup must not serialise a dozen
         // `java -version` invocations.
-        let probes = homes
-            .into_iter()
-            .map(|(home, source)| async move {
-                let exe = Self::executable_for(&home);
-                probe(&exe, home, source).await
-            });
+        let probes = homes.into_iter().map(|(home, source)| async move {
+            let exe = Self::executable_for(&home);
+            probe(&exe, home, source).await
+        });
         let mut out: Vec<JavaCandidate> = futures::future::join_all(probes)
             .await
             .into_iter()
@@ -220,7 +227,11 @@ impl JavaManager {
     }
 
     /// Download + extract a Temurin JRE for `major` into the managed dir.
-    pub async fn install(&self, major: u16, progress: &ProgressReporter) -> Result<JavaRuntime, CoreError> {
+    pub async fn install(
+        &self,
+        major: u16,
+        progress: &ProgressReporter,
+    ) -> Result<JavaRuntime, CoreError> {
         if !self.auto_install {
             return Err(CoreError::JavaMissing(
                 "auto-install disabled".into(),
@@ -230,7 +241,13 @@ impl JavaManager {
         let target = self.managed_path(major);
         if Self::executable_for(&target).exists() {
             progress.message(format!("Java {major} is already installed"));
-            if let Some(c) = probe(&Self::executable_for(&target), target.clone(), JavaSource::Managed).await {
+            if let Some(c) = probe(
+                &Self::executable_for(&target),
+                target.clone(),
+                JavaSource::Managed,
+            )
+            .await
+            {
                 return Ok(into_runtime(&c));
             }
         }
@@ -240,7 +257,10 @@ impl JavaManager {
             .join(format!(".tmp-{major}-{}", file_name(&info.package.link)));
         std::fs::create_dir_all(&self.root)?;
         progress.set_phase(sp_core::model::ProgressPhase::JavaInstall);
-        progress.message(format!("Downloading Temurin {major} ({})", info.version.semver));
+        progress.message(format!(
+            "Downloading Temurin {major} ({})",
+            info.version.semver
+        ));
         let expected = Hashes {
             sha1: None,
             sha256: Some(info.package.checksum.clone()),
@@ -289,17 +309,32 @@ impl JavaManager {
         let releases: Vec<AdoptiumRelease> = self.client.get_json(&url).await?;
         releases
             .into_iter()
-            .filter(|r| r.binaries.iter().any(|b| b.package.link.ends_with(".tar.gz") || b.package.link.ends_with(".zip")))
-            .find(|r| r.binaries.iter().any(|b| b.image_type.as_deref() == Some("jre")))
+            .filter(|r| {
+                r.binaries.iter().any(|b| {
+                    b.package.link.ends_with(".tar.gz") || b.package.link.ends_with(".zip")
+                })
+            })
+            .find(|r| {
+                r.binaries
+                    .iter()
+                    .any(|b| b.image_type.as_deref() == Some("jre"))
+            })
             .or_else(|| releases.into_iter().next())
-            .ok_or_else(|| CoreError::not_found(format!("no Temurin JRE {major} for {}", adoptium_os())))
+            .ok_or_else(|| {
+                CoreError::not_found(format!("no Temurin JRE {major} for {}", adoptium_os()))
+            })
     }
 
     /// Choose the runtime for a server. `required` comes from Mojang's manifest
     /// when available, else from [`sp_core::required_java_major_for_mc`].
-    pub fn select(candidates: &[JavaCandidate], required: u16, pinned: Option<u16>) -> Option<JavaCandidate> {
+    pub fn select(
+        candidates: &[JavaCandidate],
+        required: u16,
+        pinned: Option<u16>,
+    ) -> Option<JavaCandidate> {
         let want = pinned.unwrap_or(required);
-        let matches_major: Vec<&JavaCandidate> = candidates.iter().filter(|c| c.major == want).collect();
+        let matches_major: Vec<&JavaCandidate> =
+            candidates.iter().filter(|c| c.major == want).collect();
         if let Some(c) = matches_major
             .iter()
             .max_by_key(|c| (source_rank(&c.source), version_key(&c.version)))
@@ -322,7 +357,8 @@ impl JavaManager {
         pinned: Option<u16>,
         progress: &ProgressReporter,
     ) -> Result<JavaRuntime, CoreError> {
-        let required = manifest_major.unwrap_or_else(|| sp_core::model::required_java_major_for_mc(mc_version));
+        let required = manifest_major
+            .unwrap_or_else(|| sp_core::model::required_java_major_for_mc(mc_version));
         let candidates = self.detect().await;
         if let Some(c) = Self::select(&candidates, required, pinned) {
             return Ok(into_runtime(&c));
@@ -330,14 +366,19 @@ impl JavaManager {
         let managed = Self::executable_for(&self.managed_path(required));
         if managed.exists() {
             // detect() may have raced an install; probe directly.
-            if let Some(c) = probe(&managed, self.managed_path(required), JavaSource::Managed).await {
+            if let Some(c) = probe(&managed, self.managed_path(required), JavaSource::Managed).await
+            {
                 return Ok(into_runtime(&c));
             }
         }
         if !self.auto_install {
             return Err(CoreError::JavaMissing(mc_version.to_string(), required));
         }
-        tracing::info!(major = required, mc = mc_version, "installing a managed JRE");
+        tracing::info!(
+            major = required,
+            mc = mc_version,
+            "installing a managed JRE"
+        );
         self.install(required, progress).await
     }
 }
@@ -376,10 +417,10 @@ pub fn parse_java_version(text: &str) -> Option<(u16, String, String)> {
         .lines()
         .find(|l| l.contains("version"))
         .or_else(|| text.lines().next())?;
-    let quoted = line
-        .split('"')
-        .nth(1)
-        .or_else(|| line.split_whitespace().find(|t| t.chars().next().is_some_and(|c| c.is_ascii_digit())))?;
+    let quoted = line.split('"').nth(1).or_else(|| {
+        line.split_whitespace()
+            .find(|t| t.chars().next().is_some_and(|c| c.is_ascii_digit()))
+    })?;
     let version = quoted.to_string();
     let major = major_from_version(quoted)?;
     let vendor = if line.to_ascii_lowercase().contains("openjdk") {
@@ -393,8 +434,20 @@ pub fn parse_java_version(text: &str) -> Option<(u16, String, String)> {
         .skip(1)
         .find_map(|l| {
             let l = l.trim();
-            for marker in ["Temurin", "Adoptium", "GraalVM", "Corretto", "Zulu", "Microsoft", "Amazon", "Blue Oak", "Liberica"] {
-                if l.to_ascii_lowercase().contains(&marker.to_ascii_lowercase()) {
+            for marker in [
+                "Temurin",
+                "Adoptium",
+                "GraalVM",
+                "Corretto",
+                "Zulu",
+                "Microsoft",
+                "Amazon",
+                "Blue Oak",
+                "Liberica",
+            ] {
+                if l.to_ascii_lowercase()
+                    .contains(&marker.to_ascii_lowercase())
+                {
                     return Some(marker.to_string());
                 }
             }
@@ -488,7 +541,11 @@ pub(crate) fn copy_tree(from: &Path, to: &Path) -> Result<(), CoreError> {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                if entry.metadata().map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false) {
+                if entry
+                    .metadata()
+                    .map(|m| m.permissions().mode() & 0o111 != 0)
+                    .unwrap_or(false)
+                {
                     let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
                 }
             }
@@ -506,9 +563,12 @@ pub fn extract_java_archive(archive: &Path, dest: &Path, _size_hint: u64) -> Res
         .unwrap_or_default();
     if name.ends_with(".zip") {
         let file = std::fs::File::open(archive)?;
-        let mut zip = zip::ZipArchive::new(file).map_err(|e| CoreError::other(format!("zip: {e}")))?;
+        let mut zip =
+            zip::ZipArchive::new(file).map_err(|e| CoreError::other(format!("zip: {e}")))?;
         for i in 0..zip.len() {
-            let mut entry = zip.by_index(i).map_err(|e| CoreError::other(format!("zip entry: {e}")))?;
+            let mut entry = zip
+                .by_index(i)
+                .map_err(|e| CoreError::other(format!("zip entry: {e}")))?;
             let path = match entry.enclosed_name() {
                 Some(p) => dest.join(p),
                 // Zip-slip guard: `enclosed_name` rejects `..` and absolute paths.
@@ -536,7 +596,8 @@ pub fn extract_java_archive(archive: &Path, dest: &Path, _size_hint: u64) -> Res
         let file = std::fs::File::open(archive)?;
         let gz = flate2::read::GzDecoder::new(file);
         let mut ar = tar::Archive::new(gz);
-        ar.unpack(dest).map_err(|e| CoreError::other(format!("tar: {e}")))?;
+        ar.unpack(dest)
+            .map_err(|e| CoreError::other(format!("tar: {e}")))?;
         Ok(())
     }
 }
@@ -550,7 +611,11 @@ fn into_runtime(c: &JavaCandidate) -> JavaRuntime {
         path: c.path.clone(),
         source: c.source,
         arch: std::env::consts::ARCH.to_string(),
-        installed_at_ms: if c.source == JavaSource::Managed { Some(now_ms()) } else { None },
+        installed_at_ms: if c.source == JavaSource::Managed {
+            Some(now_ms())
+        } else {
+            None
+        },
         size_bytes: None,
     }
 }
@@ -573,7 +638,10 @@ fn adoptium_arch() -> &'static str {
         "arm" => "arm",
         "powerpc64" => "ppc64le",
         other => {
-            tracing::warn!(arch = other, "unknown architecture for Adoptium, asking for x64");
+            tracing::warn!(
+                arch = other,
+                "unknown architecture for Adoptium, asking for x64"
+            );
             "x64"
         }
     }
@@ -624,7 +692,9 @@ impl AdoptiumRelease {
             })
             .or_else(|| self.binaries.first())
             .map(|b| b.package.clone())
-            .ok_or_else(|| CoreError::not_found("no binary for this platform in the Adoptium response"))
+            .ok_or_else(|| {
+                CoreError::not_found("no binary for this platform in the Adoptium response")
+            })
     }
 }
 
@@ -635,26 +705,35 @@ mod tests {
     #[test]
     fn version_parsing_all_eras() {
         assert_eq!(
-            parse_java_version(r#"openjdk version "21.0.5" 2024-10-15 LTS
-OpenJDK Runtime Environment Temurin-21.0.5+11 (build 21.0.5+11)"#)
-                .map(|(m, v, vendor)| (m, v, vendor)),
+            parse_java_version(
+                r#"openjdk version "21.0.5" 2024-10-15 LTS
+OpenJDK Runtime Environment Temurin-21.0.5+11 (build 21.0.5+11)"#
+            )
+            .map(|(m, v, vendor)| (m, v, vendor)),
             Some((21, "21.0.5".into(), "Temurin".into()))
         );
         assert_eq!(
-            parse_java_version(r#"openjdk version "1.8.0_382"
-OpenJDK Runtime Environment (Zulu 8.72.0.17-CA) (build 1.8.0_382-b05)"#)
-                .map(|(m, _, v)| (m, v)),
+            parse_java_version(
+                r#"openjdk version "1.8.0_382"
+OpenJDK Runtime Environment (Zulu 8.72.0.17-CA) (build 1.8.0_382-b05)"#
+            )
+            .map(|(m, _, v)| (m, v)),
             Some((8, "Zulu".into()))
         );
         assert_eq!(
-            parse_java_version(r#"java version "17.0.9" 2023-10-17 LTS
-Java(TM) SE Runtime Environment (build 17.0.9+11-LTS-201)"#)
-                .map(|(m, _, _)| m),
+            parse_java_version(
+                r#"java version "17.0.9" 2023-10-17 LTS
+Java(TM) SE Runtime Environment (build 17.0.9+11-LTS-201)"#
+            )
+            .map(|(m, _, _)| m),
             Some(17)
         );
         assert_eq!(
-            parse_java_version(r#"openjdk version "17.0.12" 2024-07-16
-Microsoft OpenJDK 17 - Microsoft build"#).map(|(_, _, v)| v),
+            parse_java_version(
+                r#"openjdk version "17.0.12" 2024-07-16
+Microsoft OpenJDK 17 - Microsoft build"#
+            )
+            .map(|(_, _, v)| v),
             Some("Microsoft".into())
         );
         assert_eq!(parse_java_version("garbage"), None);
@@ -696,21 +775,38 @@ Microsoft OpenJDK 17 - Microsoft build"#).map(|(_, _, v)| v),
             c(8, JavaSource::System, "1.8.0", "/d"),
         ];
         // MC 1.21 wants 21 → the managed one, not the system one.
-        assert_eq!(JavaManager::select(&pool, 21, None).unwrap().home, PathBuf::from("/b"));
+        assert_eq!(
+            JavaManager::select(&pool, 21, None).unwrap().home,
+            PathBuf::from("/b")
+        );
         // MC 1.17 wants 16 → nothing at 16, so the lowest *newer* wins (17).
         assert_eq!(JavaManager::select(&pool, 16, None).unwrap().major, 17);
         // Pinned to 8 → the only 8.
-        assert_eq!(JavaManager::select(&pool, 21, Some(8)).unwrap().home, PathBuf::from("/d"));
+        assert_eq!(
+            JavaManager::select(&pool, 21, Some(8)).unwrap().home,
+            PathBuf::from("/d")
+        );
         // Same-major tie broken by version key.
         assert_eq!(
-            JavaManager::select(&[c(21, JavaSource::System, "21.0.1", "/x"), c(21, JavaSource::System, "21.0.9", "/y")], 21, None)
-                .unwrap()
-                .home,
+            JavaManager::select(
+                &[
+                    c(21, JavaSource::System, "21.0.1", "/x"),
+                    c(21, JavaSource::System, "21.0.9", "/y")
+                ],
+                21,
+                None
+            )
+            .unwrap()
+            .home,
             PathBuf::from("/y")
         );
         // Nothing at all for a 1.16 server that needs 8 and has none.
         let no8 = vec![c(17, JavaSource::System, "17", "/z")];
-        assert_eq!(JavaManager::select(&no8, 8, None).unwrap().major, 17, "newer is allowed");
+        assert_eq!(
+            JavaManager::select(&no8, 8, None).unwrap().major,
+            17,
+            "newer is allowed"
+        );
         assert!(JavaManager::select(&[], 21, None).is_none());
     }
 
@@ -725,15 +821,21 @@ Microsoft OpenJDK 17 - Microsoft build"#).map(|(_, _, v)| v),
         let mgr = JavaManager::new(tmp.path().join("java"), HttpClient::new(), false);
         assert!(mgr.managed_path(21).ends_with("java/21"));
         assert!(JavaManager::executable_for(Path::new("/opt/jdk")).starts_with("/opt/jdk"));
-        assert!(!JavaManager::executable_for(Path::new("/opt/jdk")).to_string_lossy().contains("//"));
+        assert!(!JavaManager::executable_for(Path::new("/opt/jdk"))
+            .to_string_lossy()
+            .contains("//"));
     }
 
     #[test]
     fn auto_install_disabled_is_an_explicit_error() {
         let tmp = tempfile::tempdir().unwrap();
         let mgr = JavaManager::new(tmp.path().join("java"), HttpClient::new(), false);
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let progress = ProgressReporter::silent("j", None, sp_core::model::ProgressPhase::JavaInstall);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let progress =
+            ProgressReporter::silent("j", None, sp_core::model::ProgressPhase::JavaInstall);
         let err = rt.block_on(mgr.install(21, &progress)).unwrap_err();
         assert!(matches!(err, CoreError::JavaMissing(..)), "{err:?}");
         assert_eq!(err.code(), "java_missing");
@@ -777,13 +879,22 @@ Microsoft OpenJDK 17 - Microsoft build"#).map(|(_, _, v)| v),
             Err(CoreError::PathEscape(_)) => {}
             Err(other) => panic!("unexpected error: {other:?}"),
         }
-        assert!(!dir.path().join("escaped.txt").exists(), "zip slip must be blocked");
-        assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../escaped.txt").exists());
+        assert!(
+            !dir.path().join("escaped.txt").exists(),
+            "zip slip must be blocked"
+        );
+        assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../escaped.txt")
+            .exists());
         // The benign entry is still extracted (inside the destination).
         if out.exists() {
             if let Ok(entries) = std::fs::read_dir(&out) {
                 for e in entries.flatten() {
-                    assert!(e.path().starts_with(&out), "{:?} escaped the destination", e.path());
+                    assert!(
+                        e.path().starts_with(&out),
+                        "{:?} escaped the destination",
+                        e.path()
+                    );
                 }
             }
         }
@@ -805,12 +916,17 @@ Microsoft OpenJDK 17 - Microsoft build"#).map(|(_, _, v)| v),
             header.set_size(payload.len() as u64);
             header.set_mode(0o755);
             header.set_cksum();
-            builder.append_data(&mut header, "jdk-21/bin/java", &payload[..]).unwrap();
+            builder
+                .append_data(&mut header, "jdk-21/bin/java", &payload[..])
+                .unwrap();
             builder.finish().unwrap();
         }
         let out = dir.path().join("out");
         extract_java_archive(&tar_path, &out, 0).unwrap();
-        assert_eq!(std::fs::read(out.join("jdk-21/bin/java")).unwrap(), b"java payload");
+        assert_eq!(
+            std::fs::read(out.join("jdk-21/bin/java")).unwrap(),
+            b"java payload"
+        );
         assert_eq!(single_child_dir(&out), Some(out.join("jdk-21")));
     }
 
@@ -845,10 +961,16 @@ Microsoft OpenJDK 17 - Microsoft build"#).map(|(_, _, v)| v),
         let found = mgr.detect().await;
         // Whatever exists, results must be sorted newest-first and deduped by home.
         for w in found.windows(2) {
-            assert!(w[0].major >= w[1].major, "{:?}", found.iter().map(|f| f.major).collect::<Vec<_>>());
+            assert!(
+                w[0].major >= w[1].major,
+                "{:?}",
+                found.iter().map(|f| f.major).collect::<Vec<_>>()
+            );
             assert_ne!(w[0].home, w[1].home);
         }
-        assert!(JavaManager::platform_search_dirs().iter().all(|d| !d.as_os_str().is_empty()));
+        assert!(JavaManager::platform_search_dirs()
+            .iter()
+            .all(|d| !d.as_os_str().is_empty()));
     }
 
     #[tokio::test]
@@ -857,7 +979,10 @@ Microsoft OpenJDK 17 - Microsoft build"#).map(|(_, _, v)| v),
         // A fake "managed" install that really is this test binary's java, if any.
         let mgr = JavaManager::new(tmp.path().join("java"), HttpClient::new(), false);
         let progress = ProgressReporter::silent("j", None, sp_core::model::ProgressPhase::Resolve);
-        let err = mgr.ensure("1.16.5", Some(8), None, &progress).await.unwrap_err();
+        let err = mgr
+            .ensure("1.16.5", Some(8), None, &progress)
+            .await
+            .unwrap_err();
         // On a machine with no Java 8 at all, we must ask for 8 (from the manifest),
         // not 17 (which the MC-version heuristic would suggest for unknowns).
         match err {

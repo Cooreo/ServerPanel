@@ -181,7 +181,9 @@ impl FabricProvider {
     }
 
     pub async fn installers(&self) -> Result<Vec<InstallerEntry>, CoreError> {
-        self.client.get_json(&self.path("/versions/installer")).await
+        self.client
+            .get_json(&self.path("/versions/installer"))
+            .await
     }
 
     /// The newest *stable* loader, falling back to the newest listed one (Quilt
@@ -198,7 +200,10 @@ impl FabricProvider {
             .cloned()
     }
 
-    pub fn pick_installer<'a>(installers: &'a [InstallerEntry], exact: Option<&str>) -> Option<&'a InstallerEntry> {
+    pub fn pick_installer<'a>(
+        installers: &'a [InstallerEntry],
+        exact: Option<&str>,
+    ) -> Option<&'a InstallerEntry> {
         if let Some(exact) = exact {
             return installers.iter().find(|i| i.version == exact);
         }
@@ -338,7 +343,9 @@ impl Provider for FabricProvider {
                         downloads: vec![],
                         unstable: !l.loader.stable,
                         note: l.qsl.as_ref().and_then(|q| {
-                            q.versions.first().map(|v| format!("latest QSL: {}", v.version))
+                            q.versions
+                                .first()
+                                .map(|v| format!("latest QSL: {}", v.version))
                         }),
                     })
                     .collect();
@@ -363,21 +370,24 @@ impl Provider for FabricProvider {
                 )
             })?;
         let loaders = self.loaders_for(&mc).await?;
-        let exact_loader = sel
-            .exact
-            .as_deref()
-            .filter(|e| e.starts_with("0.") || e.contains("fabric") || e.chars().next().is_some_and(|c| c.is_ascii_digit()));
+        let exact_loader = sel.exact.as_deref().filter(|e| {
+            e.starts_with("0.")
+                || e.contains("fabric")
+                || e.chars().next().is_some_and(|c| c.is_ascii_digit())
+        });
         let loader = Self::pick_loader(&loaders, exact_loader).ok_or_else(|| {
-            CoreError::not_found(format!("no {} loader published for Minecraft {mc}", self.eco.slug()))
+            CoreError::not_found(format!(
+                "no {} loader published for Minecraft {mc}",
+                self.eco.slug()
+            ))
         })?;
         let installers = self.installers().await?;
-        let installer = Self::pick_installer(&installers, None).ok_or_else(|| {
-            CoreError::Upstream {
+        let installer =
+            Self::pick_installer(&installers, None).ok_or_else(|| CoreError::Upstream {
                 service: self.eco.slug(),
                 status: 200,
                 body: "the meta API listed no installer version".into(),
-            }
-        })?;
+            })?;
         let qsl = loaders
             .iter()
             .find(|l| l.loader.version == loader.version)
@@ -430,7 +440,8 @@ mod tests {
     fn installer() -> InstallerEntry {
         InstallerEntry {
             version: "1.1.1".into(),
-            url: "https://maven.fabricmc.net/net/fabricmc/installer/1.1.1/installer-1.1.1.jar".into(),
+            url: "https://maven.fabricmc.net/net/fabricmc/installer/1.1.1/installer-1.1.1.jar"
+                .into(),
             stable: true,
         }
     }
@@ -438,9 +449,18 @@ mod tests {
     #[test]
     fn loader_selection_prefers_stable_and_honours_pins() {
         let l = loaders_fixture();
-        assert_eq!(FabricProvider::pick_loader(&l, None).unwrap().loader.version, "0.16.9");
         assert_eq!(
-            FabricProvider::pick_loader(&l, Some("0.16.8")).unwrap().loader.version,
+            FabricProvider::pick_loader(&l, None)
+                .unwrap()
+                .loader
+                .version,
+            "0.16.9"
+        );
+        assert_eq!(
+            FabricProvider::pick_loader(&l, Some("0.16.8"))
+                .unwrap()
+                .loader
+                .version,
             "0.16.8"
         );
         assert!(FabricProvider::pick_loader(&l, Some("9.9.9")).is_none());
@@ -449,7 +469,10 @@ mod tests {
         let unstable_only: Vec<LoaderForGame> =
             serde_json::from_str(r#"[{"loader":{"version":"0.99.0","stable":false}}]"#).unwrap();
         assert_eq!(
-            FabricProvider::pick_loader(&unstable_only, None).unwrap().loader.version,
+            FabricProvider::pick_loader(&unstable_only, None)
+                .unwrap()
+                .loader
+                .version,
             "0.99.0"
         );
     }
@@ -501,17 +524,27 @@ mod tests {
             version: "0.16.9".into(),
             stable: true,
         };
-        let plan = FabricProvider::plan_from(Ecosystem::Fabric, "1.21.4", &loader, &installer(), None);
+        let plan =
+            FabricProvider::plan_from(Ecosystem::Fabric, "1.21.4", &loader, &installer(), None);
         assert_eq!(plan.provider, "fabric");
         assert_eq!(plan.java_major, 21);
         assert_eq!(plan.version.id, "1.21.4-0.16.9");
-        let inst = plan.installer.clone().expect("fabric must run an installer");
+        let inst = plan
+            .installer
+            .clone()
+            .expect("fabric must run an installer");
         assert_eq!(inst.jar, "fabric-installer.jar");
-        assert_eq!(inst.expected_artifact.as_deref(), Some("fabric-server-launch.jar"));
+        assert_eq!(
+            inst.expected_artifact.as_deref(),
+            Some("fabric-server-launch.jar")
+        );
         assert!(inst.args.contains(&"-downloadMinecraft".to_string()));
         assert_eq!(plan.files.len(), 1);
         assert_eq!(plan.files[0].role, FileRole::Installer);
-        assert!(plan.files[0].unverified, "the meta API publishes no checksum");
+        assert!(
+            plan.files[0].unverified,
+            "the meta API publishes no checksum"
+        );
         match &plan.launch {
             LaunchMode::Jar { jar, args } => {
                 assert_eq!(jar, "fabric-server-launch.jar");
@@ -543,7 +576,10 @@ mod tests {
             "1.21.4",
             &l[0].loader,
             &installer(),
-            l[0].qsl.as_ref().and_then(|q| q.versions.first()).map(|v| v.version.as_str()),
+            l[0].qsl
+                .as_ref()
+                .and_then(|q| q.versions.first())
+                .map(|v| v.version.as_str()),
         );
         assert!(
             plan.files.iter().all(|f| !f.dest.starts_with("mods/")),
@@ -556,7 +592,8 @@ mod tests {
         let mut routes = BTreeMap::new();
         routes.insert(
             "/v2/versions/game",
-            r#"[{"version":"1.21.4","stable":true},{"version":"25w03a","stable":false}]"#.to_string(),
+            r#"[{"version":"1.21.4","stable":true},{"version":"25w03a","stable":false}]"#
+                .to_string(),
         );
         routes.insert(
             "/v2/versions/loader/1.21.4",
@@ -573,7 +610,11 @@ mod tests {
         let p = FabricProvider::fabric(&cfg).unwrap();
 
         let listing = p.versions(None).await.unwrap();
-        assert_eq!(listing.versions.len(), 1, "unstable games are hidden by default");
+        assert_eq!(
+            listing.versions.len(),
+            1,
+            "unstable games are hidden by default"
+        );
         let loaders = p.versions(Some("1.21.4")).await.unwrap();
         assert_eq!(loaders.versions.len(), 3);
         assert_eq!(loaders.versions[0].id, "0.16.9");
@@ -606,7 +647,10 @@ mod tests {
     #[tokio::test]
     async fn quilt_uses_its_own_base_and_shape() {
         let mut routes = BTreeMap::new();
-        routes.insert("/v3/versions/loader/1.21.4", serde_json::to_string(&quilt_loaders_fixture()).unwrap());
+        routes.insert(
+            "/v3/versions/loader/1.21.4",
+            serde_json::to_string(&quilt_loaders_fixture()).unwrap(),
+        );
         routes.insert(
             "/v3/versions/installer",
             r#"[{"version":"1.0.4","url":"https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/1.0.4/quilt-installer-1.0.4.jar","stable":true}]"#.to_string(),

@@ -13,7 +13,8 @@ pub struct Content<'a> {
     pub(crate) db: &'a Db,
 }
 
-const COLS: &str = "id, server_id, kind, project_id, project_slug, title, version_id, version_number, \
+const COLS: &str =
+    "id, server_id, kind, project_id, project_slug, title, version_id, version_number, \
                     filename, path, enabled, source, sha1, sha512, size_bytes, mc_versions_json, \
                     loaders_json, install_json, installed_at_ms, updated_at_ms";
 
@@ -116,7 +117,11 @@ impl<'a> Content<'a> {
         Ok(row.try_get("id")?)
     }
 
-    pub async fn list(&self, server_id: ServerId, kind: Option<ContentKind>) -> DbResult<Vec<InstalledContent>> {
+    pub async fn list(
+        &self,
+        server_id: ServerId,
+        kind: Option<ContentKind>,
+    ) -> DbResult<Vec<InstalledContent>> {
         let rows = match kind {
             Some(k) => sqlx::query(&format!(
                 "SELECT {COLS} FROM server_content WHERE server_id = ? AND kind = ? ORDER BY title COLLATE NOCASE"
@@ -135,12 +140,18 @@ impl<'a> Content<'a> {
         rows.iter().map(map).collect()
     }
 
-    pub async fn by_path(&self, server_id: ServerId, path: &str) -> DbResult<Option<InstalledContent>> {
-        let row = sqlx::query(&format!("SELECT {COLS} FROM server_content WHERE server_id = ? AND path = ?"))
-            .bind(server_id.get())
-            .bind(path)
-            .fetch_optional(self.pool())
-            .await?;
+    pub async fn by_path(
+        &self,
+        server_id: ServerId,
+        path: &str,
+    ) -> DbResult<Option<InstalledContent>> {
+        let row = sqlx::query(&format!(
+            "SELECT {COLS} FROM server_content WHERE server_id = ? AND path = ?"
+        ))
+        .bind(server_id.get())
+        .bind(path)
+        .fetch_optional(self.pool())
+        .await?;
         row.as_ref().map(map).transpose()
     }
 
@@ -157,15 +168,29 @@ impl<'a> Content<'a> {
     }
 
     pub async fn set_enabled(&self, id: i64, enabled: bool) -> DbResult<()> {
-        let _ = sqlx::query("UPDATE server_content SET enabled = ?, updated_at_ms = ? WHERE id = ?")
-            .bind(i64::from(enabled))
-            .bind(now_ms())
-            .execute(self.pool())
-            .await?;
+        let _ =
+            sqlx::query("UPDATE server_content SET enabled = ?, updated_at_ms = ? WHERE id = ?")
+                .bind(i64::from(enabled))
+                .bind(now_ms())
+                // The `WHERE id = ?` placeholder had no bind, so this updated the wrong row
+                // or failed outright; the only clue in the build was `unused variable: id`.
+                .bind(id)
+                .execute(self.pool())
+                .await?;
         Ok(())
     }
 
-    pub async fn set_version(&self, id: i64, version_id: &str, version_number: &str, filename: &str, path: &str, sha1: Option<&str>, sha512: Option<&str>, size_bytes: Option<u64>) -> DbResult<()> {
+    pub async fn set_version(
+        &self,
+        id: i64,
+        version_id: &str,
+        version_number: &str,
+        filename: &str,
+        path: &str,
+        sha1: Option<&str>,
+        sha512: Option<&str>,
+        size_bytes: Option<u64>,
+    ) -> DbResult<()> {
         let _ = sqlx::query(
             "UPDATE server_content SET version_id = ?, version_number = ?, filename = ?, path = ?,
                     sha1 = ?, sha512 = ?, size_bytes = ?, updated_at_ms = ? WHERE id = ?",
@@ -199,12 +224,14 @@ impl<'a> Content<'a> {
     }
 
     pub async fn forget_path(&self, server_id: ServerId, path: &str) -> DbResult<u64> {
-        Ok(sqlx::query("DELETE FROM server_content WHERE server_id = ? AND path = ?")
-            .bind(server_id.get())
-            .bind(path)
-            .execute(self.pool())
-            .await?
-            .rows_affected())
+        Ok(
+            sqlx::query("DELETE FROM server_content WHERE server_id = ? AND path = ?")
+                .bind(server_id.get())
+                .bind(path)
+                .execute(self.pool())
+                .await?
+                .rows_affected(),
+        )
     }
 
     /// Every Modrinth-backed row with a version id — the input for a bulk
@@ -218,7 +245,18 @@ impl<'a> Content<'a> {
         rows.iter().map(map).collect()
     }
 
-    pub async fn record_modpack(&self, server_id: ServerId, slug: &str, name: &str, version: &str, mc: &str, loader: &str, loader_version: &str, file_count: u32, skipped: &[String]) -> DbResult<i64> {
+    pub async fn record_modpack(
+        &self,
+        server_id: ServerId,
+        slug: &str,
+        name: &str,
+        version: &str,
+        mc: &str,
+        loader: &str,
+        loader_version: &str,
+        file_count: u32,
+        skipped: &[String],
+    ) -> DbResult<i64> {
         let _ = sqlx::query("DELETE FROM modpacks WHERE server_id = ? AND slug = ?")
             .bind(server_id.get())
             .bind(slug)
@@ -271,28 +309,34 @@ impl<'a> Content<'a> {
 mod tests {
     use super::*;
     use crate::db::{Db, DbPath};
-    use sp_core::model::{InstallState, ServerKind, ServerRuntimeConfig};
     use crate::repos::ServerDraft;
+    use sp_core::model::{InstallState, ServerKind, ServerRuntimeConfig};
     use std::path::PathBuf;
 
     async fn setup() -> (tempfile::TempDir, Db, ServerId) {
         let dir = tempfile::tempdir().unwrap();
-        let db = Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap();
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
         let mut config = ServerRuntimeConfig::default();
         config.server_dir = PathBuf::from("/tmp/sp-content-test");
-        let s = db.servers().create(ServerDraft {
-            name: "c".into(),
-            kind: ServerKind::Fabric,
-            mc_version: "1.21.4".into(),
-            build: "0.16.9".into(),
-            server_dir: PathBuf::from("/tmp/sp-content-test"),
-            config,
-            eula_accepted: true,
-            install_state: InstallState::Ready,
-            template_of: None,
-            tags: vec![],
-            position: None,
-        }).await.unwrap();
+        let s = db
+            .servers()
+            .create(ServerDraft {
+                name: "c".into(),
+                kind: ServerKind::Fabric,
+                mc_version: "1.21.4".into(),
+                build: "0.16.9".into(),
+                server_dir: PathBuf::from("/tmp/sp-content-test"),
+                config,
+                eula_accepted: true,
+                install_state: InstallState::Ready,
+                template_of: None,
+                tags: vec![],
+                position: None,
+            })
+            .await
+            .unwrap();
         (dir, db, s.id)
     }
 
@@ -320,8 +364,16 @@ mod tests {
     #[tokio::test]
     async fn records_lists_toggles_and_forgets() {
         let (_t, db, sid) = setup().await;
-        let id = db.content().record(&new_content(sid, "mods/sodium.jar")).await.unwrap();
-        let list = db.content().list(sid, Some(ContentKind::Mod)).await.unwrap();
+        let id = db
+            .content()
+            .record(&new_content(sid, "mods/sodium.jar"))
+            .await
+            .unwrap();
+        let list = db
+            .content()
+            .list(sid, Some(ContentKind::Mod))
+            .await
+            .unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].title, "Sodium");
         assert!(list[0].enabled);
@@ -329,9 +381,28 @@ mod tests {
         assert_eq!(list[0].mc_versions, vec!["1.21.4".to_string()]);
 
         db.content().set_enabled(id, false).await.unwrap();
-        assert!(!db.content().by_path(sid, "mods/sodium.jar").await.unwrap().unwrap().enabled);
+        assert!(
+            !db.content()
+                .by_path(sid, "mods/sodium.jar")
+                .await
+                .unwrap()
+                .unwrap()
+                .enabled
+        );
 
-        db.content().set_version(id, "v2", "0.6.1", "sodium-0.6.1.jar", "mods/sodium-0.6.1.jar", None, None, Some(2000)).await.unwrap();
+        db.content()
+            .set_version(
+                id,
+                "v2",
+                "0.6.1",
+                "sodium-0.6.1.jar",
+                "mods/sodium-0.6.1.jar",
+                None,
+                None,
+                Some(2000),
+            )
+            .await
+            .unwrap();
         let updated = db.content().forget(id).await.unwrap();
         assert_eq!(updated.version_number, "0.6.1");
         assert_eq!(updated.path, "mods/sodium-0.6.1.jar");
@@ -341,7 +412,10 @@ mod tests {
     #[tokio::test]
     async fn reinstall_same_path_updates_in_place() {
         let (_t, db, sid) = setup().await;
-        db.content().record(&new_content(sid, "mods/x.jar")).await.unwrap();
+        db.content()
+            .record(&new_content(sid, "mods/x.jar"))
+            .await
+            .unwrap();
         let mut again = new_content(sid, "mods/x.jar");
         again.version_number = "9.9.9".into();
         let id2 = db.content().record(&again).await.unwrap();
@@ -349,19 +423,39 @@ mod tests {
         assert_eq!(list.len(), 1, "upsert must not duplicate");
         assert_eq!(list[0].version_number, "9.9.9");
         assert_eq!(list[0].id, id2);
-        assert_eq!(db.content().known_paths(sid).await.unwrap(), vec!["mods/x.jar".to_string()]);
+        assert_eq!(
+            db.content().known_paths(sid).await.unwrap(),
+            vec!["mods/x.jar".to_string()]
+        );
     }
 
     #[tokio::test]
     async fn modrinth_rows_filter_and_modpacks() {
         let (_t, db, sid) = setup().await;
-        db.content().record(&new_content(sid, "mods/m.jar")).await.unwrap();
+        db.content()
+            .record(&new_content(sid, "mods/m.jar"))
+            .await
+            .unwrap();
         let mut manual = new_content(sid, "mods/manual.jar");
         manual.source = ContentSource::Upload;
         db.content().record(&manual).await.unwrap();
         assert_eq!(db.content().modrinth_rows().await.unwrap().len(), 1);
 
-        let mp = db.content().record_modpack(sid, "fabric-example", "Example Pack", "1.0.0", "1.21.4", "fabric", "0.16.9", 12, &["client-only.jar".into()]).await.unwrap();
+        let mp = db
+            .content()
+            .record_modpack(
+                sid,
+                "fabric-example",
+                "Example Pack",
+                "1.0.0",
+                "1.21.4",
+                "fabric",
+                "0.16.9",
+                12,
+                &["client-only.jar".into()],
+            )
+            .await
+            .unwrap();
         assert!(mp > 0);
         let packs = db.content().modpacks(sid).await.unwrap();
         assert_eq!(packs.len(), 1);
@@ -369,9 +463,25 @@ mod tests {
         assert_eq!(packs[0]["fileCount"], serde_json::json!(12));
         assert_eq!(packs[0]["skipped"].as_array().map(Vec::len), Some(1));
         // re-install of the same pack replaces rather than appends
-        db.content().record_modpack(sid, "fabric-example", "Example Pack", "1.0.1", "1.21.4", "fabric", "0.16.9", 13, &[]).await.unwrap();
+        db.content()
+            .record_modpack(
+                sid,
+                "fabric-example",
+                "Example Pack",
+                "1.0.1",
+                "1.21.4",
+                "fabric",
+                "0.16.9",
+                13,
+                &[],
+            )
+            .await
+            .unwrap();
         assert_eq!(db.content().modpacks(sid).await.unwrap().len(), 1);
-        assert_eq!(db.content().modpacks(sid).await.unwrap()[0]["versionNumber"], serde_json::json!("1.0.1"));
+        assert_eq!(
+            db.content().modpacks(sid).await.unwrap()[0]["versionNumber"],
+            serde_json::json!("1.0.1")
+        );
     }
 
     #[tokio::test]
@@ -379,6 +489,12 @@ mod tests {
         let (_t, db, _sid) = setup().await;
         let err = db.content().forget(9999).await.unwrap_err();
         assert_eq!(<DbError as Into<CoreError>>::into(err).code(), "not_found");
-        assert_eq!(db.content().forget_path(_sid, "mods/gone.jar").await.unwrap(), 0);
+        assert_eq!(
+            db.content()
+                .forget_path(_sid, "mods/gone.jar")
+                .await
+                .unwrap(),
+            0
+        );
     }
 }

@@ -45,12 +45,14 @@ impl<'a> Updates<'a> {
                 current_version: current_version.to_string(),
                 state: "unknown".into(),
                 ..Default::default()
-            })
+            });
         };
         let read = |c: &str| row.try_get::<Option<String>, _>(c).ok().flatten();
         let num = |c: &str| row.try_get::<Option<i64>, _>(c).ok().flatten();
         Ok(UpdateState {
-            current_version: row.try_get("current_version").unwrap_or_else(|_| current_version.to_string()),
+            current_version: row
+                .try_get("current_version")
+                .unwrap_or_else(|_| current_version.to_string()),
             available_version: read("available_version"),
             checked_at_ms: num("checked_at_ms"),
             changelog_md: read("changelog_md"),
@@ -99,11 +101,16 @@ impl<'a> Updates<'a> {
         if s.state != "available" && s.state != "up-to-date" {
             return Ok(None);
         }
-        let fresh = s.checked_at_ms.map(|t| crate::repos::now_ms() - t < ttl_ms).unwrap_or(false);
+        let fresh = s
+            .checked_at_ms
+            .map(|t| crate::repos::now_ms() - t < ttl_ms)
+            .unwrap_or(false);
         if !fresh {
             return Ok(None);
         }
-        let Some(version) = s.available_version else { return Ok(None) };
+        let Some(version) = s.available_version else {
+            return Ok(None);
+        };
         Ok(Some(ReleaseInfo {
             version: version.clone(),
             channel: sp_core::model::ReleaseChannel::Stable,
@@ -124,7 +131,9 @@ mod tests {
     #[tokio::test]
     async fn singleton_row_upserts() {
         let dir = tempfile::tempdir().unwrap();
-        let db = Db::connect(&DbPath::file(dir.path().join("p.db"))).await.unwrap();
+        let db = Db::connect(&DbPath::file(dir.path().join("p.db")))
+            .await
+            .unwrap();
         let fresh = db.updates().get("0.1.0").await.unwrap();
         assert_eq!(fresh.state, "unknown");
         assert_eq!(fresh.current_version, "0.1.0");
@@ -148,6 +157,9 @@ mod tests {
         assert_eq!(got.available_version.as_deref(), Some("0.2.0"));
         assert_eq!(got.asset_name.as_deref(), Some("x.exe"));
         assert!(db.updates().cached_release(60_000).await.unwrap().is_some());
-        assert!(db.updates().cached_release(0).await.unwrap().is_none(), "stale cache must be refetched");
+        assert!(
+            db.updates().cached_release(0).await.unwrap().is_none(),
+            "stale cache must be refetched"
+        );
     }
 }
