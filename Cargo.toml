@@ -98,7 +98,7 @@ open = "5"
 
 # --- codegen (opt-in so the shipped binary never depends on them) ---
 ts-rs = { version = "10", features = ["serde-compat", "chrono-impl", "uuid-impl"] }
-utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa = { version = "6", features = ["axum_extras", "chrono", "uuid"] }
 
 # --- workspace members ---
 sp-core = { path = "crates/sp-core" }
