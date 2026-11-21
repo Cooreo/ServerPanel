@@ -101,7 +101,7 @@ jobs:
           PY
       - name: Create the draft
         id: create
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -172,7 +172,7 @@ jobs:
       - name: Also build the headless server binary
         run: cargo build --release -p sp-server ${{ matrix.args }}
       - name: Upload the server binary
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -199,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: List what the release contains
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const id = ${{ needs.release-notes.outputs.release_id }};
@@ -223,7 +223,7 @@ jobs:
               body: (data.body || '') + body,
             });
       - name: Undraft
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.repos.updateRelease({
